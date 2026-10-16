@@ -95,6 +95,7 @@ val viewModelModule = module {
     viewModel<me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM> { params ->
         me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM(params.get(), get(), get())
     }
+    viewModel { me.rerere.rikkahub.ui.pages.projects.export.ProjectExporter(get(), get(), get()) }
     viewModelOf(::ProjectsVM)
     viewModel<me.rerere.rikkahub.ui.pages.projects.ProjectDetailVM> { params ->
         me.rerere.rikkahub.ui.pages.projects.ProjectDetailVM(params.get(), get(), get(), get())

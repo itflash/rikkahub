@@ -61,6 +61,8 @@ const val MEMORY_DREAM_NOTIFICATION_CHANNEL_ID = "memory_dream"
 class RikkaHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Project long-image export must be able to draw the whole document, before any WebView exists.
+        android.webkit.WebView.enableSlowWholeDocumentDraw()
         // Restore files and settings before eager Koin singletons or workers can access them.
         try {
             val restored = runBlocking(Dispatchers.IO) {

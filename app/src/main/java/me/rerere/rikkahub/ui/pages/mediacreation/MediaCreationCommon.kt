@@ -284,11 +284,5 @@ internal suspend fun saveMediaToGallery(context: Context, file: File, mimeType: 
 }
 
 internal fun shareMedia(context: Context, file: File, mimeType: String) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = mimeType
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(intent, null))
+    me.rerere.rikkahub.utils.shareFiles(context, listOf(file), mimeType)
 }

@@ -1,5 +1,11 @@
 package me.rerere.rikkahub.ui.pages.projects
 
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.MessageAdd01
+import me.rerere.hugeicons.stroke.FileView
+import me.rerere.hugeicons.stroke.Share08
+import me.rerere.hugeicons.stroke.MoreVertical
 import android.content.Intent
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -43,6 +49,7 @@ fun ProjectDetailPage(id: String, initialTab: Int = 0) {
     val navigator = LocalNavController.current
     val context = LocalContext.current
     var tab by rememberSaveable(id) { mutableIntStateOf(initialTab.coerceIn(0, 1)) }
+    var showExport by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -69,10 +76,11 @@ fun ProjectDetailPage(id: String, initialTab: Int = 0) {
     BackHandler(tab == 1 && files.path.isNotEmpty()) { filesVM.goUp() }
     fun newChat() { navigator.navigate(Screen.Chat(Uuid.random().toString(), workspaceId = id)) }
     Scaffold(
-        topBar = { TopAppBar(title = { Text(project?.name ?: "项目") }, navigationIcon = { BackButton() }, actions = {
-            TextButton(onClick = { navigator.navigate(Screen.ProjectPreview(id)) }) { Text("预览") }
+        topBar = { TopAppBar(title = { Text(project?.name ?: "项目", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, navigationIcon = { BackButton() }, actions = {
+            IconButton(onClick = { navigator.navigate(Screen.ProjectPreview(id)) }) { Icon(HugeIcons.FileView, "预览页面") }
+            IconButton(onClick = { showExport = true }) { Icon(HugeIcons.Share08, "导出项目") }
             Box {
-                IconButton(onClick = { menu = true }) { Text("⋮") }
+                IconButton(onClick = { menu = true }) { Icon(HugeIcons.MoreVertical, "项目操作") }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; rename = true })
                     DropdownMenuItem(text = { Text("删除") }, onClick = { menu = false; deleting = true })
@@ -81,8 +89,8 @@ fun ProjectDetailPage(id: String, initialTab: Int = 0) {
             }
         }) },
         floatingActionButton = {
-            if (tab == 0) ExtendedFloatingActionButton(onClick = ::newChat, icon = { Text("✎") }, text = { Text("新对话") })
-            else ExtendedFloatingActionButton(onClick = { createMenu = true }, icon = { Text("＋") }, text = { Text("新建") })
+            if (tab == 0) ExtendedFloatingActionButton(onClick = ::newChat, icon = { Icon(HugeIcons.MessageAdd01, null) }, text = { Text("新对话") })
+            else ExtendedFloatingActionButton(onClick = { createMenu = true }, icon = { Icon(HugeIcons.Add01, null) }, text = { Text("新建") })
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -125,6 +133,7 @@ fun ProjectDetailPage(id: String, initialTab: Int = 0) {
             )
         }
     }
+    if (showExport) me.rerere.rikkahub.ui.pages.projects.export.ExportSheet(id, null) { showExport = false }
     if (rename) ProjectNameDialog("重命名项目", project?.name.orEmpty(), { rename = false }) { vm.rename(it); rename = false }
     if (deleting) ProjectDeleteDialog(project?.name.orEmpty(), { deleting = false }) { vm.delete { navigator.clearAndNavigate(Screen.Projects) } }
     if (createMenu) ModalBottomSheet(onDismissRequest = { createMenu = false }) {

@@ -1,5 +1,9 @@
 package me.rerere.rikkahub.ui.pages.projects.preview
 
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Refresh01
+import me.rerere.hugeicons.stroke.Share08
+import me.rerere.hugeicons.stroke.MoreVertical
 import android.content.Intent
 import android.webkit.ConsoleMessage
 import androidx.compose.foundation.layout.*
@@ -41,6 +45,7 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
     val scope = rememberCoroutineScope()
     val appScope: AppScope = koinInject()
     var selected by rememberSaveable(id, path) { mutableStateOf(path) }
+    var showExport by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var entries by remember { mutableStateOf(false) }
     var console by remember { mutableStateOf(false) }
@@ -87,9 +92,10 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
             },
             navigationIcon = { BackButton() },
             actions = {
-                IconButton(onClick = ::reload) { Text("⟳") }
+                IconButton(onClick = ::reload) { Icon(HugeIcons.Refresh01, "刷新页面") }
+                IconButton(onClick = { showExport = true }, enabled = entry != null) { Icon(HugeIcons.Share08, "导出页面") }
                 Box {
-                    IconButton(onClick = { menu = true }) { Text("⋮") }
+                    IconButton(onClick = { menu = true }) { Icon(HugeIcons.MoreVertical, "预览选项") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem(text = { Text("在浏览器中打开") }, enabled = server != null && entry != null, onClick = {
                             menu = false
@@ -135,5 +141,6 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
             }
         }
     }
+    if (showExport) me.rerere.rikkahub.ui.pages.projects.export.ExportSheet(id, entry) { showExport = false }
     if (console) ConsoleLogsSheet(state.consoleMessages) { console = false }
 }
