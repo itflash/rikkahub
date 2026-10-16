@@ -83,6 +83,30 @@ class HtmlInlinerTest {
         assertEquals(3, calls.size)
     }
 
+    @Test fun `deferred scripts run after the body and modules keep their type`() = runBlocking {
+        val root = temp.newFolder("project")
+        write(root, "index.html", """<html><head><script src="a.js" defer></script><script type="module" src="m.js"></script><script src="b.js" defer></script></head><body><div id="app"></div><script>inline()</script></body></html>""")
+        write(root, "a.js", "a()"); write(root, "b.js", "b()"); write(root, "m.js", "m()")
+        val doc = Jsoup.parse(HtmlInliner(ResourceDownloader { null }).inline(root, "index.html").html)
+        val bodyScripts = doc.body().children().filter { it.tagName() == "script" }.map { it.data() }
+        assertEquals(listOf("inline()", "a()", "b()"), bodyScripts)
+        val module = doc.head().selectFirst("script")!!
+        assertEquals("module", module.attr("type"))
+        assertEquals("m()", module.data())
+        assertTrue(doc.select("script[defer]").isEmpty())
+    }
+
+    @Test fun `linked stylesheet urls are not re-resolved against the page`() = runBlocking {
+        val root = temp.newFolder("project")
+        write(root, "index.html", """<link rel="stylesheet" href="css/style.css">""")
+        write(root, "css/style.css", """.a{background:url(missing.png)}""")
+        // A same-named file next to the page must not be picked up for the stylesheet's failed reference.
+        File(root, "missing.png").writeBytes(byteArrayOf(9))
+        val result = HtmlInliner(ResourceDownloader { null }).inline(root, "index.html")
+        assertFalse(result.html.contains("data:image/png"))
+        assertTrue(result.html.contains("url(\"missing.png\")"))
+    }
+
     @Test fun `traversal and symlinks never disclose files outside the project`() = runBlocking {
         val root = temp.newFolder("project")
         val secret = temp.newFile("secret.txt").apply { writeText("TOP_SECRET") }

@@ -10,6 +10,8 @@ import org.jsoup.nodes.Element
 import java.io.File
 import java.net.URI
 import java.util.Base64
+import java.util.Collections
+import java.util.IdentityHashMap
 
 fun interface ResourceDownloader {
     suspend fun download(url: String): Downloaded?
@@ -40,6 +42,8 @@ class HtmlInliner(
             val base = entry.toURI().toString()
             val doc = Jsoup.parse(entry.readText(), base)
             doc.outputSettings().prettyPrint(false)
+            // Styles converted from <link> were already rewritten against the stylesheet's own URL.
+            val convertedStyles = Collections.newSetFromMap(IdentityHashMap<Element, Boolean>())
             for (link in doc.select("link[href]").toList()) {
                 currentCoroutineContext().ensureActive()
                 val href = link.attr("href")
@@ -53,6 +57,7 @@ class HtmlInliner(
                             val style = Element("style").appendChild(DataNode(escapeClosing(css, "style")))
                             if (link.hasAttr("media")) style.attr("media", link.attr("media"))
                             link.replaceWith(style)
+                            convertedStyles.add(style)
                         }
                     }
                     rels.any { it in setOf("icon", "apple-touch-icon") } -> link.attr("href", dataUri(base, href))
@@ -60,13 +65,19 @@ class HtmlInliner(
                     rels.any { it in setOf("preload", "modulepreload") } && !isRemote(resolve(base, href).orEmpty()) -> link.remove()
                 }
             }
+            val deferred = mutableListOf<Element>()
             for (script in doc.select("script[src]")) {
                 val location = resolve(base, script.attr("src"))
                 val resource = location?.let { read(it) } ?: continue
-                script.removeAttr("src").removeAttr("type").removeAttr("defer").removeAttr("async")
+                // Inline scripts ignore defer/async. Module scripts keep type=module (inline modules are still
+                // deferred); classic deferred scripts move to the end of <body> to keep running after parsing.
+                val module = script.attr("type").trim().equals("module", ignoreCase = true)
+                if (!module && script.hasAttr("defer") && !script.hasAttr("async")) deferred.add(script)
+                script.removeAttr("src").removeAttr("defer").removeAttr("async")
                 script.removeAttr("integrity").removeAttr("crossorigin")
                 script.empty().appendChild(DataNode(escapeClosing(resource.bytes.toString(Charsets.UTF_8), "script")))
             }
+            deferred.forEach { doc.body().appendChild(it) }
             val attributes = mapOf(
                 "img" to listOf("src", "srcset"), "source" to listOf("src", "srcset"),
                 "video" to listOf("src", "poster"), "audio" to listOf("src"), "input[type=image]" to listOf("src"),
@@ -75,7 +86,7 @@ class HtmlInliner(
                 if (!element.hasAttr(attr)) continue
                 element.attr(attr, if (attr == "srcset") srcset(base, element.attr(attr)) else dataUri(base, element.attr(attr)))
             }
-            for (style in doc.select("style")) style.html(escapeClosing(css(style.data(), base, linkedSetOf()), "style"))
+            for (style in doc.select("style")) if (style !in convertedStyles) style.html(escapeClosing(css(style.data(), base, linkedSetOf()), "style"))
             for (element in doc.select("[style]")) element.attr("style", css(element.attr("style"), base, linkedSetOf()))
             // An author-supplied base URL would break otherwise untouched relative links in the portable file.
             doc.select("base[href]").remove()

@@ -57,7 +57,10 @@ fun WorkspaceFileEditorPage(
     var fileServer by remember(id, area) { mutableStateOf<me.rerere.rikkahub.ui.pages.projects.ProjectFileServer?>(null) }
     LaunchedEffect(id, area) {
         if (area == WorkspaceStorageArea.FILES) {
-            fileServer = me.rerere.rikkahub.ui.pages.projects.ProjectFileServer(repository.resolveDirectory(id, area, ""))
+            // Without a server the preview falls back to inline data, so a failure here is not fatal.
+            fileServer = runCatching {
+                me.rerere.rikkahub.ui.pages.projects.ProjectFileServer(repository.resolveDirectory(id, area, ""))
+            }.getOrNull()
         }
     }
     val editable = area == WorkspaceStorageArea.FILES
@@ -196,7 +199,8 @@ private fun WorkspaceWebPreview(
     path: String,
     modifier: Modifier = Modifier,
 ) {
-    val interceptor = remember(server) { server?.let { s -> { uri: android.net.Uri -> s.intercept(uri) } } }
+    // The preview reflects the editor buffer, so unsaved edits show up without saving first.
+    val interceptor = remember(server, path, content) { server?.interceptWithOverride(path, content) }
     val state = if (server != null) rememberWebViewState(
         url = server.urlOf(path),
         requestInterceptor = interceptor,

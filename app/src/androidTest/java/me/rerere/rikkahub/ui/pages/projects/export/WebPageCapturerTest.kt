@@ -57,6 +57,27 @@ class WebPageCapturerTest {
         }
     }
 
+    @Test fun longPageKeepsViewportHeightHeroAndFooter() = runBlocking {
+        ActivityScenario.launch(RouteActivity::class.java).use { scenario ->
+            lateinit var activity: RouteActivity
+            scenario.onActivity { activity = it }
+            val root = File(activity.cacheDir, "capture-test-${System.nanoTime()}").apply { mkdirs() }
+            try {
+                File(root, "index.html").writeText("""<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%}.hero{min-height:100vh;background:#2b59ff}.body{height:2000px;background:#22aa44}footer{height:200px;background:#ee2222}</style><div class="hero"></div><div class="body"></div><footer></footer>""")
+                val result = WebPageCapturer(activity).capture(ProjectFileServer(root), "index.html", File(root, "out"), "hero") { _, _ -> }
+                assertEquals(CaptureMode.SINGLE, result.mode)
+                val bitmap = BitmapFactory.decodeFile(result.files.single().absolutePath)
+                try {
+                    // Hero must stay one viewport tall instead of stretching to the relaid-out view height.
+                    assertTrue("height ${bitmap.height}", bitmap.height in 3 * 3000..3 * 3100)
+                    assertEquals(Color.parseColor("#2b59ff"), bitmap.getPixel(30, 30))
+                    assertEquals(Color.parseColor("#22aa44"), bitmap.getPixel(30, 3 * 900))
+                    assertEquals(Color.parseColor("#ee2222"), bitmap.getPixel(30, bitmap.height - 30))
+                } finally { bitmap.recycle() }
+            } finally { root.deleteRecursively() }
+        }
+    }
+
     @Test fun overlayBasedDeckCapturesOnlyOneViewport() = runBlocking {
         ActivityScenario.launch(RouteActivity::class.java).use { scenario ->
             lateinit var activity: RouteActivity

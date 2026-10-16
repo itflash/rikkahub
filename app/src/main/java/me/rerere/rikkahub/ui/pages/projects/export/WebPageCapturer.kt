@@ -37,8 +37,9 @@ class WebPageCapturer(private val activity: Activity) {
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
-                settings.useWideViewPort = true
-                settings.loadWithOverviewMode = true
+                // Ignore <meta viewport> so the layout is always exactly 390 CSS px; pages without one would
+                // otherwise lay out at 980 px and break the CSS px -> view px mapping used for cropping.
+                settings.useWideViewPort = false
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
                 isEnabled = false
@@ -79,6 +80,9 @@ class WebPageCapturer(private val activity: Activity) {
             val segments = plan.segments
             warnings.addAll(plan.warnings)
             if (mode == CaptureMode.SINGLE || mode == CaptureMode.SPLIT) {
+                // Growing the view to the page height also grows the viewport, so 100vh heroes would stretch to
+                // the whole page. Pin viewport-relative sizes to their current px values first.
+                webView.js(FREEZE_VIEWPORT_UNITS)
                 layout(ceil(minOf(pageH, segments.last().let { it.top + it.height }) * density).toInt())
                 // Two display frames after relayout, so Chromium has a chance to update its display list.
                 webView.frame(); webView.frame()
@@ -148,6 +152,31 @@ class WebPageCapturer(private val activity: Activity) {
               const rects=slides.map(k=>{const r=k.getBoundingClientRect();return {top:r.top+scrollY,height:r.height};});
               const locked=pageH<=vh+2&&[de,body].some(e=>e&&getComputedStyle(e).overflowY==='hidden');
               return JSON.stringify({pageH,vh,slides:rects,locked});
+            })()
+        """.trimIndent()
+
+        /** Pins vh/vmax-based sizes (and html/body percentage heights) to px; returns the number pinned. */
+        val FREEZE_VIEWPORT_UNITS = """
+            (() => {
+              const props=['height','min-height','max-height','top','bottom','padding-top','padding-bottom','margin-top','margin-bottom','font-size','line-height'];
+              const re=/[\d.](?:[sld]?vh|vmax|vb)\b/i;
+              const targets=new Map();
+              const add=(el,p)=>{if(!targets.has(el))targets.set(el,new Set());targets.get(el).add(p);};
+              const walk=rules=>{for(const r of rules){
+                if(r.style&&r.selectorText){
+                  const ps=props.filter(p=>re.test(r.style.getPropertyValue(p)));
+                  if(ps.length){try{document.querySelectorAll(r.selectorText).forEach(el=>ps.forEach(p=>add(el,p)));}catch(e){}}
+                }
+                if(r.cssRules)walk(r.cssRules);
+              }};
+              for(const s of document.styleSheets){try{walk(s.cssRules);}catch(e){}}
+              document.querySelectorAll('[style]').forEach(el=>props.forEach(p=>{if(re.test(el.style.getPropertyValue(p)))add(el,p);}));
+              // html/body percentage heights resolve against the viewport too; pinning their current size is a no-op otherwise.
+              [document.documentElement,document.body].filter(Boolean).forEach(el=>{add(el,'height');add(el,'min-height');});
+              const pinned=[];
+              targets.forEach((ps,el)=>{const cs=getComputedStyle(el);ps.forEach(p=>pinned.push([el,p,cs.getPropertyValue(p)]));});
+              pinned.forEach(([el,p,v])=>el.style.setProperty(p,v,'important'));
+              return pinned.length;
             })()
         """.trimIndent()
     }

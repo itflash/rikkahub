@@ -34,6 +34,17 @@ class ProjectFileServer(val filesRoot: File) {
         }
     }
 
+    /** Like [intercept], but serves [content] for [path] instead of the file on disk (e.g. an unsaved editor buffer). */
+    fun interceptWithOverride(path: String, content: String): (Uri) -> WebResourceResponse? {
+        val target = path.removePrefix("/")
+        val mime = MimeTypes.of(target)
+        return { uri ->
+            if (uri.host == PROJECT_HOST && uri.path.orEmpty().removePrefix("/") == target) {
+                WebResourceResponse(mime, "utf-8", 200, "OK", headers, content.byteInputStream())
+            } else intercept(uri)
+        }
+    }
+
     private fun errorResponse(status: Int, reason: String) =
         WebResourceResponse("text/plain", "utf-8", status, reason, headers, reason.byteInputStream())
 
