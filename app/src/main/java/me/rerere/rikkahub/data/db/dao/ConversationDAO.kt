@@ -12,6 +12,9 @@ import me.rerere.rikkahub.data.repository.LightConversationEntity
 
 @Dao
 interface ConversationDAO {
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, folder_id as folderId FROM conversationentity WHERE config LIKE '%\"workspaceId\":\"' || :workspaceId || '\"%' ORDER BY update_at DESC")
+    fun getConversationsOfWorkspace(workspaceId: String): Flow<List<LightConversationEntity>>
+
     @Query("SELECT * FROM conversationentity ORDER BY is_pinned DESC, update_at DESC")
     fun getAll(): Flow<List<ConversationEntity>>
 

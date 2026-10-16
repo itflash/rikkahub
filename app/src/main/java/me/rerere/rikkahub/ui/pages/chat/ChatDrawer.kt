@@ -722,6 +722,7 @@ fun ChatDrawerContent(
 @Composable
 private fun DrawerActions(navController: Navigator) {
     Column {
+        DrawerEntry(icon = HugeIcons.TransactionHistory, text = "工作台", onClick = { navController.clearAndNavigate(Screen.Projects) })
         // 历史记录入口，行尾是搜索入口
         DrawerEntry(
             icon = HugeIcons.TransactionHistory,

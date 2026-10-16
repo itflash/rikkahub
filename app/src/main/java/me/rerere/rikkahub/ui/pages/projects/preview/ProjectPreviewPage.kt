@@ -21,6 +21,13 @@ import me.rerere.rikkahub.ui.pages.webview.ConsoleLogsSheet
 import me.rerere.ui.webview.WebView
 import me.rerere.ui.webview.rememberWebViewState
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.ui.pages.projects.ProjectThumbnails
+import me.rerere.rikkahub.utils.base64Encode
 import org.koin.core.parameter.parametersOf
 import java.io.File
 import kotlin.uuid.Uuid
@@ -31,6 +38,8 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
     val project by vm.state.collectAsStateWithLifecycle()
     val navigator = LocalNavController.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val appScope: AppScope = koinInject()
     var selected by rememberSaveable(id, path) { mutableStateOf(path) }
     var menu by remember { mutableStateOf(false) }
     var entries by remember { mutableStateOf(false) }
@@ -54,6 +63,14 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (resumed) reload() else resumed = true
     }
+    fun captureThumbnail() {
+        val view = state.webView ?: return
+        appScope.launch(Dispatchers.Main.immediate, start = CoroutineStart.UNDISPATCHED) {
+            runCatching { ProjectThumbnails.capture(view, id) }
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { captureThumbnail() }
+    DisposableEffect(state, id) { onDispose { captureThumbnail() } }
     val errors = state.consoleMessages.filter { it.messageLevel() == ConsoleMessage.MessageLevel.ERROR }
         .distinctBy { Triple(it.message(), it.sourceId(), it.lineNumber()) }
     Scaffold(topBar = {
@@ -110,7 +127,9 @@ fun ProjectPreviewPage(id: String, path: String? = null, conversationId: String?
                                 appendLine("${index + 1}. ${error.sourceId().removePrefix("https://project.local/")} 第 ${error.lineNumber()} 行：${error.message()}")
                             }
                         }
-                        navigator.navigate(Screen.Chat(conversationId ?: Uuid.random().toString(), text = message, workspaceId = id))
+                        scope.launch {
+                            navigator.returnToChat(vm.targetConversation(conversationId), message.base64Encode(), id)
+                        }
                     }) { Text("让 AI 修复") }
                 }
             }

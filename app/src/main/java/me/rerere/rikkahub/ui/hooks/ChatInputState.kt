@@ -10,6 +10,8 @@ import me.rerere.ai.ui.UIMessagePart
 import kotlin.uuid.Uuid
 
 class ChatInputState {
+    val focusRequester = androidx.compose.ui.focus.FocusRequester()
+    var requestInitialFocus by mutableStateOf(false)
     val textContent = TextFieldState()
     var messageContent by mutableStateOf(listOf<UIMessagePart>())
     var editingMessage by mutableStateOf<Uuid?>(null)

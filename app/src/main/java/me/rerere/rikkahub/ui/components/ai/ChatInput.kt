@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -500,6 +501,13 @@ private fun TextInputRow(
             }
         }
 
+        LaunchedEffect(state.requestInitialFocus) {
+            if (state.requestInitialFocus) {
+                kotlinx.coroutines.delay(300)
+                state.focusRequester.requestFocus()
+                state.requestInitialFocus = false
+            }
+        }
         var isFocused by remember { mutableStateOf(false) }
         var isFullScreen by remember { mutableStateOf(false) }
         var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
@@ -594,6 +602,7 @@ private fun TextInputRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("chat_input")
+                .focusRequester(state.focusRequester)
                 .contentReceiver(receiveContentListener)
                 .onFocusChanged {
                     isFocused = it.isFocused

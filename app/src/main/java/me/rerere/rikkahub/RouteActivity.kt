@@ -280,16 +280,7 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
-                Uuid.random().toString()
-            } else {
-                readStringPreference(
-                    "lastConversationId",
-                    Uuid.random().toString()
-                ) ?: Uuid.random().toString()
-            }
-        )
+        val startScreen = Screen.Projects
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect {
@@ -347,7 +338,8 @@ class RouteActivity : ComponentActivity() {
                                     id = Uuid.parse(key.id),
                                     text = key.text,
                                     files = key.files.map { it.toUri() },
-                                    nodeId = key.nodeId?.let { Uuid.parse(it) }
+                                    nodeId = key.nodeId?.let { Uuid.parse(it) },
+                                    workspaceId = key.workspaceId,
                                 )
                             }
 
@@ -544,6 +536,9 @@ class RouteActivity : ComponentActivity() {
                                 WorkspacePage()
                             }
 
+                            entry<Screen.Projects> { me.rerere.rikkahub.ui.pages.projects.ProjectsPage() }
+                            entry<Screen.ProjectDetail> { key -> me.rerere.rikkahub.ui.pages.projects.ProjectDetailPage(key.id, key.tab) }
+
                             entry<Screen.ProjectPreview> { key ->
                                 me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewPage(key.id, key.path, key.conversationId)
                             }
@@ -638,6 +633,12 @@ sealed interface Screen : NavKey {
         val nodeId: String? = null,
         val workspaceId: String? = null,
     ) : Screen
+
+    @Serializable
+    data object Projects : Screen
+
+    @Serializable
+    data class ProjectDetail(val id: String, val tab: Int = 0) : Screen
 
     @Serializable
     data class ProjectPreview(val id: String, val path: String? = null, val conversationId: String? = null) : Screen

@@ -23,6 +23,7 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceVM
 import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerVM
 import me.rerere.rikkahub.ui.pages.translator.TranslatorVM
+import me.rerere.rikkahub.ui.pages.projects.ProjectsVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -31,6 +32,8 @@ val viewModelModule = module {
     viewModel<ChatVM> { params ->
         ChatVM(
             id = params.get(),
+            workspaceId = params.values.getOrNull(1) as? String,
+            workspaceRepository = get(),
             context = get(),
             settingsStore = get(),
             conversationRepo = get(),
@@ -90,7 +93,11 @@ val viewModelModule = module {
     viewModelOf(::SkillsVM)
     viewModelOf(::SkillDetailVM)
     viewModel<me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM> { params ->
-        me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM(params.get(), get())
+        me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM(params.get(), get(), get())
+    }
+    viewModelOf(::ProjectsVM)
+    viewModel<me.rerere.rikkahub.ui.pages.projects.ProjectDetailVM> { params ->
+        me.rerere.rikkahub.ui.pages.projects.ProjectDetailVM(params.get(), get(), get(), get())
     }
     viewModelOf(::WorkspaceVM)
     viewModel<WorkspaceDetailVM> {

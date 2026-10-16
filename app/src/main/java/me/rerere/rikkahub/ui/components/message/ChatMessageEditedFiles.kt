@@ -61,9 +61,13 @@ internal fun EditedFilesList(
         parts.filterIsInstance<UIMessagePart.Tool>()
             .filter { it.toolName in WORKSPACE_FILE_TOOL_NAMES && it.isExecuted }
             .mapNotNull { tool ->
-(tool.inputAsJson() as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull
-            }
-            .distinct()
+                // Failed/rejected calls also have output; only file metadata means a successful write.
+                tool.output.filterIsInstance<UIMessagePart.Text>().firstNotNullOfOrNull { output ->
+                    runCatching { kotlinx.serialization.json.Json.parseToJsonElement(output.text) as? JsonObject }.getOrNull()
+                        ?.takeIf { it["error"] == null && it["sizeBytes"] != null }
+                        ?.get("path")?.jsonPrimitive?.contentOrNull
+                }
+            }.asReversed().distinct().asReversed()
     }
     if (editedFiles.isEmpty()) return
 
@@ -117,6 +121,16 @@ internal fun EditedFilesList(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             )
         }
+    }
+
+    val projectChat = me.rerere.rikkahub.ui.pages.projects.LocalProjectChat.current
+    if (projectChat != null && editedFiles.isNotEmpty()) {
+        val navigator = me.rerere.rikkahub.ui.context.LocalNavController.current
+        androidx.compose.material3.FilledTonalButton(onClick = {
+            val html = editedFiles.lastOrNull { it.startsWith("/workspace/") && it.substringAfterLast('.').lowercase() in setOf("html", "htm") }
+                ?.removePrefix("/workspace/")
+            navigator.navigate(me.rerere.rikkahub.Screen.ProjectPreview(projectChat.projectId, html, projectChat.conversationId))
+        }) { Text("预览效果") }
     }
 
     if (selectedPath != null) {

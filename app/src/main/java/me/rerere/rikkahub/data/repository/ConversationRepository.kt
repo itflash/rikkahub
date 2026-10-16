@@ -41,6 +41,9 @@ class ConversationRepository(
         private const val INITIAL_LOAD_SIZE = 40
     }
 
+    fun getConversationsOfWorkspace(workspaceId: String): Flow<List<Conversation>> =
+        conversationDAO.getConversationsOfWorkspace(workspaceId).map { rows -> rows.map(::conversationSummaryToConversation) }
+
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
 

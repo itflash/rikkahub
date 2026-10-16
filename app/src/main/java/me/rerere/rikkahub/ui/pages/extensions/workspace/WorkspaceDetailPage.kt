@@ -258,6 +258,7 @@ fun WorkspaceDetailPage(id: String) {
                         isActive = onFilesTab,
                         onSelectArea = vm::selectArea,
                         onGoUp = vm::goUp,
+                        onRename = vm::renameFile,
                         onResolveImage = { entry, area -> vm.resolveImageFile(entry, area) },
                         onOpen = { entry ->
                             when {
@@ -644,7 +645,7 @@ private fun InstallRootfsDialog(
 }
 
 @Composable
-private fun WorkspaceFilesPage(
+internal fun WorkspaceFilesPage(
     state: WorkspaceDetailState,
     isActive: Boolean,
     onSelectArea: (WorkspaceStorageArea) -> Unit,
@@ -655,7 +656,17 @@ private fun WorkspaceFilesPage(
     onExport: (WorkspaceFileEntry) -> Unit,
     onBatchExport: (List<WorkspaceFileEntry>) -> Unit,
     onShare: (WorkspaceFileEntry) -> Unit,
+    showAreaSwitcher: Boolean = true,
+    onNavigatePath: ((String) -> Unit)? = null,
+    onRename: (WorkspaceFileEntry, String) -> Unit = { _, _ -> },
 ) {
+    var renameTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
+    renameTarget?.let { target ->
+        me.rerere.rikkahub.ui.pages.projects.ProjectNameDialog("重命名文件", target.name, { renameTarget = null }) {
+            onRename(target, it)
+            renameTarget = null
+        }
+    }
     var selecting by remember(state.area, state.path) { mutableStateOf(false) }
     var selectedPaths by remember(state.area, state.path) { mutableStateOf(emptySet<String>()) }
     val files = state.entries.filterNot { it.isDirectory }
@@ -687,11 +698,22 @@ private fun WorkspaceFilesPage(
                     modifier = Modifier.padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    WorkspaceAreaSelector(
+                    if (showAreaSwitcher) WorkspaceAreaSelector(
                         selected = state.area,
                         onSelected = onSelectArea,
                     )
-                    WorkspacePathBar(
+                    if (!showAreaSwitcher && onNavigatePath != null) {
+                        androidx.compose.foundation.lazy.LazyRow(verticalAlignment = Alignment.CenterVertically) {
+                            item { TextButton(onClick = { onNavigatePath("") }) { Text("项目根") } }
+                            val segments = state.path.split('/').filter { it.isNotEmpty() }
+                            segments.forEachIndexed { index, segment ->
+                                item {
+                                    Text("/")
+                                    TextButton(onClick = { onNavigatePath(segments.take(index + 1).joinToString("/")) }) { Text(segment) }
+                                }
+                            }
+                        }
+                    } else WorkspacePathBar(
                         path = state.path,
                         canGoUp = state.path.isNotBlank(),
                         onGoUp = onGoUp,
@@ -735,6 +757,7 @@ private fun WorkspaceFilesPage(
                     onDelete = { onDelete(entry) },
                     onExport = { onExport(entry) },
                     onShare = { onShare(entry) },
+                    onRename = { renameTarget = entry },
                 )
             }
         }
@@ -880,6 +903,7 @@ private fun WorkspaceFileItem(
     onDelete: () -> Unit,
     onExport: () -> Unit,
     onShare: () -> Unit,
+    onRename: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isImage = !entry.isDirectory && entry.detectFileType() == WorkspaceFileType.IMAGE
@@ -1011,6 +1035,9 @@ private fun WorkspaceFileItem(
                 val context = LocalContext.current
                 ItemActionMenu(
                     actions = buildList {
+                        if (area == WorkspaceStorageArea.FILES) add(ItemAction(
+                            text = "重命名", icon = HugeIcons.FileEdit, onClick = onRename,
+                        ))
                         add(
                             ItemAction(
                                 text = stringResource(R.string.workspace_detail_copy_path),

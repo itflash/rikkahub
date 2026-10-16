@@ -139,6 +139,33 @@ class WorkspaceDetailVM(
         refresh()
     }
 
+    fun goTo(path: String) {
+        _state.update { it.copy(path = path, entries = emptyList(), error = null) }
+        refresh()
+    }
+
+    fun createEntry(name: String, directory: Boolean) = viewModelScope.launch {
+        try {
+            require(name.isNotBlank() && '/' !in name && '\\' !in name && name !in setOf(".", "..")) { "文件名无效" }
+            val path = listOf(state.value.path, name).filter { it.isNotEmpty() }.joinToString("/")
+            if (directory) repository.mkdirs(id, path) else repository.writeText(id, path, "", false)
+            repository.touch(id)
+            refresh()
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) { _state.update { it.copy(error = e.message) } }
+    }
+
+    fun renameFile(entry: WorkspaceFileEntry, name: String) = viewModelScope.launch {
+        try {
+            require(name.isNotBlank() && '/' !in name && '\\' !in name && name !in setOf(".", "..")) { "文件名无效" }
+            val target = listOf(entry.path.substringBeforeLast('/', ""), name).filter { it.isNotEmpty() }.joinToString("/")
+            repository.moveFile(id, entry.path, target, false)
+            repository.touch(id)
+            refresh()
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) { _state.update { it.copy(error = e.message) } }
+    }
+
     fun goUp() {
         val path = state.value.path
         if (path.isBlank()) return

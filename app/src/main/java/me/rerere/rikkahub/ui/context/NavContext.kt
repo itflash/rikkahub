@@ -27,7 +27,29 @@ class Navigator(private val backStack: MutableList<NavKey>) {
 
     fun clearAndNavigate(screen: Screen) {
         backStack.clear()
+        if (screen != Screen.Projects) backStack.add(Screen.Projects)
         backStack.add(screen)
+    }
+
+    fun backToProject(id: String) {
+        val target = Screen.ProjectDetail(id)
+        if (backStack.dropLast(1).lastOrNull() is Screen.ProjectDetail &&
+            (backStack.dropLast(1).lastOrNull() as Screen.ProjectDetail).id == id) {
+            popBackStack()
+        } else {
+            val index = backStack.indexOfLast { it is Screen.ProjectDetail && it.id == id }
+            if (index >= 0) while (backStack.size > index + 1) backStack.removeLastOrNull()
+            else clearAndNavigate(target)
+        }
+    }
+
+    /** Return to the existing Chat destination instead of pushing a duplicate. */
+    fun returnToChat(id: String, text: String, workspaceId: String) {
+        val index = backStack.indexOfLast { it is Screen.Chat && it.id == id }
+        if (index >= 0) {
+            while (backStack.size > index + 1) backStack.removeLastOrNull()
+            backStack[index] = (backStack[index] as Screen.Chat).copy(text = text)
+        } else navigate(Screen.Chat(id, text = text, workspaceId = workspaceId))
     }
 
     fun popBackStack() {

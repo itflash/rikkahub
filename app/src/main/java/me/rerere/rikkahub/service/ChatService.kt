@@ -297,23 +297,28 @@ class ChatService(
 
     // ---- 初始化对话 ----
 
-    suspend fun initializeConversation(conversationId: Uuid) {
+    suspend fun initializeConversation(conversationId: Uuid, workspaceId: Uuid? = null) {
         sessionManager.withSession(conversationId) { session ->
-            ensureInitialized(session)
+            ensureInitialized(session, workspaceId)
             settingsStore.selectAssistant(session.state.value.assistantId)
         }
     }
 
-    private suspend fun ensureInitialized(session: ConversationSession) {
+    private suspend fun ensureInitialized(session: ConversationSession, workspaceId: Uuid? = null) {
         session.initialize {
             loadConversation(session.id) ?: run {
                 // 新建对话, 并添加预设消息
-                val assistant = settingsStore.awaitLoaded().getCurrentAssistant()
-                Conversation.ofId(
+                val settings = settingsStore.awaitLoaded()
+                val assistant = settings.getCurrentAssistant()
+                val conversation = Conversation.ofId(
                     id = session.id,
                     assistantId = assistant.id,
                     newConversation = true
                 ).updateCurrentMessages(assistant.presetMessages)
+                if (workspaceId != null) {
+                    val bound = conversation.bindConfig(settings)
+                    bound.copy(config = requireNotNull(bound.config).copy(workspaceId = workspaceId), workspaceCwd = "/workspace")
+                } else conversation
             }
         }
     }

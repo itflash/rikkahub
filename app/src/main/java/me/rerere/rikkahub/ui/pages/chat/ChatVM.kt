@@ -53,6 +53,8 @@ private const val TAG = "ChatVM"
 
 class ChatVM(
     id: String,
+    workspaceId: String? = null,
+    workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository,
     private val context: Application,
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
@@ -64,6 +66,9 @@ class ChatVM(
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
+    val project = combine(conversation, workspaceRepository.listFlow()) { conversation, workspaces ->
+        workspaces.find { it.id == conversation.config?.workspaceId?.toString() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     var chatListInitialized by mutableStateOf(false) // 聊天列表是否已经滚动到底部
 
     // 聊天输入状态 - 保存在 ViewModel 中避免 TransactionTooLargeException
@@ -93,7 +98,7 @@ class ChatVM(
 
         // 初始化对话
         viewModelScope.launch {
-            chatService.initializeConversation(_conversationId)
+            chatService.initializeConversation(_conversationId, workspaceId?.let(Uuid::parse))
         }
 
         // 记住对话ID, 方便下次启动恢复
