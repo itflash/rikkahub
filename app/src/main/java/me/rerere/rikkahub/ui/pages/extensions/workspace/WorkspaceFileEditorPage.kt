@@ -54,6 +54,12 @@ fun WorkspaceFileEditorPage(
     val repository = koinInject<WorkspaceRepository>()
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
+    var fileServer by remember(id, area) { mutableStateOf<me.rerere.rikkahub.ui.pages.projects.ProjectFileServer?>(null) }
+    LaunchedEffect(id, area) {
+        if (area == WorkspaceStorageArea.FILES) {
+            fileServer = me.rerere.rikkahub.ui.pages.projects.ProjectFileServer(repository.resolveDirectory(id, area, ""))
+        }
+    }
     val editable = area == WorkspaceStorageArea.FILES
     val fileName = path.substringAfterLast('/').ifBlank { path }
     val extension = fileName.substringAfterLast('.', "").lowercase()
@@ -93,6 +99,10 @@ fun WorkspaceFileEditorPage(
                 },
                 navigationIcon = { BackButton() },
                 actions = {
+                    if (editable && extension in setOf("html", "htm")) {
+                        val navigator = me.rerere.rikkahub.ui.context.LocalNavController.current
+                        TextButton(onClick = { navigator.navigate(me.rerere.rikkahub.Screen.ProjectPreview(id, path)) }) { Text("全屏预览") }
+                    }
                     if (supportsPreview && !loading && loadError == null) {
                         TextButton(onClick = { showPreview = !showPreview }) {
                             Text(if (showPreview) "源码" else "预览")
@@ -155,6 +165,8 @@ fun WorkspaceFileEditorPage(
             showPreview -> WorkspaceWebPreview(
                 content = textState.text.toString(),
                 isSvg = extension == "svg",
+                server = fileServer,
+                path = path,
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
             )
 
@@ -180,9 +192,21 @@ fun WorkspaceFileEditorPage(
 private fun WorkspaceWebPreview(
     content: String,
     isSvg: Boolean,
+    server: me.rerere.rikkahub.ui.pages.projects.ProjectFileServer?,
+    path: String,
     modifier: Modifier = Modifier,
 ) {
-    val state = rememberWebViewState(
+    val interceptor = remember(server) { server?.let { s -> { uri: android.net.Uri -> s.intercept(uri) } } }
+    val state = if (server != null) rememberWebViewState(
+        url = server.urlOf(path),
+        requestInterceptor = interceptor,
+        settings = {
+            allowFileAccess = false
+            allowContentAccess = false
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        },
+    ) else rememberWebViewState(
         data = content,
         baseUrl = "https://workspace-preview.invalid/",
         mimeType = if (isSvg) "image/svg+xml" else "text/html",

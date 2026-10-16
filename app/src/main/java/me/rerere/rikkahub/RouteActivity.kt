@@ -544,6 +544,10 @@ class RouteActivity : ComponentActivity() {
                                 WorkspacePage()
                             }
 
+                            entry<Screen.ProjectPreview> { key ->
+                                me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewPage(key.id, key.path, key.conversationId)
+                            }
+
                             entry<Screen.WorkspaceDetail> { key ->
                                 WorkspaceDetailPage(key.id)
                             }
@@ -631,8 +635,12 @@ sealed interface Screen : NavKey {
         val id: String,
         val text: String? = null,
         val files: List<String> = emptyList(),
-        val nodeId: String? = null
+        val nodeId: String? = null,
+        val workspaceId: String? = null,
     ) : Screen
+
+    @Serializable
+    data class ProjectPreview(val id: String, val path: String? = null, val conversationId: String? = null) : Screen
 
     @Serializable
     data class ShareHandler(val text: String, val streamUri: String? = null) : Screen

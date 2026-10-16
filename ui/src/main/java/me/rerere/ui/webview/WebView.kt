@@ -1,6 +1,7 @@
 package me.rerere.ui.webview
 
 import android.annotation.SuppressLint
+import android.net.Uri
 import android.graphics.Bitmap
 import android.util.Log
 import android.view.ViewGroup.LayoutParams
@@ -25,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
 private const val TAG = "WebView"
+
+private class WebViewBinding(var state: WebViewState? = null)
 
 internal class MyWebChromeClient(private val state: WebViewState) : WebChromeClient() {
     override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -53,7 +56,8 @@ internal class MyWebViewClient(private val state: WebViewState) : WebViewClient(
         view: WebView,
         request: WebResourceRequest
     ): WebResourceResponse? {
-        return WebViewLocalAssets.intercept(view.context.applicationContext, request.url)
+        return state.requestInterceptor?.invoke(request.url)
+            ?: WebViewLocalAssets.intercept(view.context.applicationContext, request.url)
             ?: super.shouldInterceptRequest(view, request)
     }
 
@@ -104,8 +108,9 @@ fun WebView(
     onUpdated: (WebView) -> Unit = {},
 ) {
     // Remember the clients based on the state
-    val webChromeClient = remember { MyWebChromeClient(state) }
-    val webViewClient = remember { MyWebViewClient(state) }
+    val binding = remember { WebViewBinding() }
+    val webChromeClient = remember(state) { MyWebChromeClient(state) }
+    val webViewClient = remember(state) { MyWebViewClient(state) }
 
     Box(
         modifier = modifier
@@ -145,18 +150,31 @@ fun WebView(
                 if (state.webView === it) {
                     state.webView = null
                 }
+                binding.state = null
                 it.release(state.interfaces)
                 Log.d(TAG, "AndroidView: Releasing WebView")
             },
             update = { webView ->
+                val previous = binding.state
+                val stateChanged = previous !== state
+                if (stateChanged) {
+                    if (previous != null && previous.webView === webView) previous.webView = null
+                    // Different projects share a virtual host; never reuse a previous project's page/history.
+                    if (previous?.requestInterceptor !== state.requestInterceptor) {
+                        webView.stopLoading()
+                        webView.clearHistory()
+                    }
+                    binding.state = state
+                    webView.settings.apply(state.settings)
+                }
                 state.webView = webView
                 state.interfaces.forEach { (name, obj) ->
                     webView.addJavascriptInterface(obj, name)
                 }
                 Log.d(TAG, "AndroidView: Updating WebView")
-                // Ensure clients are updated if state changes (though unlikely here)
-                // webView.webChromeClient = webChromeClient
-                // webView.webViewClient = webViewClient
+                // Entry selection replaces rememberWebViewState; console events must reach the new state too.
+                webView.webChromeClient = webChromeClient
+                webView.webViewClient = webViewClient
 
                 // Update settings that might change
                 webView.settings.javaScriptEnabled = state.javaScriptEnabled
@@ -167,14 +185,14 @@ fun WebView(
                         // Only load new URL if it's different from the current one or if the state forces reload
                         // Also check if the webView's url is null or blank, which might happen initially
                         val currentWebViewUrl = webView.url
-                        if (url.isNotEmpty() && (currentWebViewUrl.isNullOrBlank() || url != currentWebViewUrl || state.forceReload)) {
+                        if (url.isNotEmpty() && (currentWebViewUrl.isNullOrBlank() || url != currentWebViewUrl || state.forceReload || stateChanged)) {
                             webView.loadUrl(content.url, content.additionalHttpHeaders)
                             state.forceReload = false // Reset force reload flag
                         }
                     }
 
                     is WebContent.Data -> {
-                        if (content != state.lastLoadedData || state.forceReload) {
+                        if (content != state.lastLoadedData || state.forceReload || stateChanged) {
                             webView.loadDataWithBaseURL(
                                 content.baseUrl,
                                 content.data,
@@ -228,7 +246,8 @@ sealed class WebContent {
 class WebViewState(
     initialContent: WebContent = WebContent.NavigatorOnly,
     val interfaces: Map<String, Any> = emptyMap(),
-    val settings: WebSettings.() -> Unit = {}
+    val settings: WebSettings.() -> Unit = {},
+    val requestInterceptor: ((Uri) -> WebResourceResponse?)? = null,
 ) {
     // --- Content State ---
     var content: WebContent by mutableStateOf(initialContent)
@@ -319,6 +338,8 @@ class WebViewState(
         webView?.clearHistory()
     }
 
+    fun clearConsoleMessages() { consoleMessages = emptyList() }
+
     fun pushConsoleMessage(message: ConsoleMessage) {
         consoleMessages = consoleMessages + message
         if (consoleMessages.size > 64) { // Limit to 64 messages
@@ -333,11 +354,13 @@ fun rememberWebViewState(
     additionalHttpHeaders: Map<String, String> = emptyMap(),
     interfaces: Map<String, Any> = emptyMap(),
     settings: WebSettings.() -> Unit = {},
-) = remember(url, additionalHttpHeaders) { // Use keys for better recomposition control
+    requestInterceptor: ((Uri) -> WebResourceResponse?)? = null,
+) = remember(url, additionalHttpHeaders, requestInterceptor) { // Use keys for better recomposition control
     WebViewState(
         initialContent = WebContent.Url(url, additionalHttpHeaders),
         interfaces = interfaces,
-        settings = settings
+        settings = settings,
+        requestInterceptor = requestInterceptor,
     )
 }
 
@@ -350,10 +373,12 @@ fun rememberWebViewState(
     historyUrl: String? = null,
     interfaces: Map<String, Any> = emptyMap(),
     settings: WebSettings.() -> Unit = {},
-) = remember(data, baseUrl, encoding, mimeType, historyUrl) { // Use keys
+    requestInterceptor: ((Uri) -> WebResourceResponse?)? = null,
+) = remember(data, baseUrl, encoding, mimeType, historyUrl, requestInterceptor) { // Use keys
     WebViewState(
         initialContent = WebContent.Data(data, baseUrl, encoding, mimeType, historyUrl),
         interfaces = interfaces,
-        settings = settings
+        settings = settings,
+        requestInterceptor = requestInterceptor,
     )
 }

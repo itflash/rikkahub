@@ -89,6 +89,9 @@ val viewModelModule = module {
     viewModelOf(::QuickMessagesVM)
     viewModelOf(::SkillsVM)
     viewModelOf(::SkillDetailVM)
+    viewModel<me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM> { params ->
+        me.rerere.rikkahub.ui.pages.projects.preview.ProjectPreviewVM(params.get(), get())
+    }
     viewModelOf(::WorkspaceVM)
     viewModel<WorkspaceDetailVM> {
         WorkspaceDetailVM(

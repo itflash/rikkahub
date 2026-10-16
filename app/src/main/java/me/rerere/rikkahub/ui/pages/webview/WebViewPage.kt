@@ -75,7 +75,6 @@ fun WebViewPage(url: String, contentId: String) {
 
     var showDropdown by remember { mutableStateOf(false) }
     var showConsoleSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
 
     BackHandler(state.canGoBack) {
         state.goBack()
@@ -151,51 +150,55 @@ fun WebViewPage(url: String, contentId: String) {
         )
     }
 
-    if (showConsoleSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showConsoleSheet = false },
-            sheetState = sheetState
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Console Logs",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+    if (showConsoleSheet) ConsoleLogsSheet(state.consoleMessages) { showConsoleSheet = false }
+}
 
-                SelectionContainer {
-                    LazyColumn {
-                        items(state.consoleMessages) { message ->
-                            Text(
-                                text = "${message.messageLevel().name}: ${message.message()}\n" +
-                                    "Source: ${message.sourceId()}:${message.lineNumber()}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = JetbrainsMono,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                color = when (message.messageLevel().name) {
-                                    "ERROR" -> MaterialTheme.colorScheme.error
-                                    "WARNING" -> MaterialTheme.colorScheme.secondary
-                                    else -> MaterialTheme.colorScheme.onSurface
-                                }
-                            )
-                        }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ConsoleLogsSheet(messages: List<android.webkit.ConsoleMessage>, onDismissRequest: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Console Logs",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            SelectionContainer {
+                LazyColumn {
+                    items(messages) { message ->
+                        Text(
+                            text = "${message.messageLevel().name}: ${message.message()}\n" +
+                                "Source: ${message.sourceId()}:${message.lineNumber()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = JetbrainsMono,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            color = when (message.messageLevel().name) {
+                                "ERROR" -> MaterialTheme.colorScheme.error
+                                "WARNING" -> MaterialTheme.colorScheme.secondary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        )
                     }
                 }
+            }
 
-                if (state.consoleMessages.isEmpty()) {
-                    Text(
-                        text = "No console messages",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
+            if (messages.isEmpty()) {
+                Text(
+                    text = "No console messages",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
     }
