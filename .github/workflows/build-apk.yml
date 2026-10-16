@@ -1,0 +1,119 @@
+name: Build APK
+
+on:
+  # 推送到 master 自动打包（只改文档时跳过）
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  # 也支持手动触发
+  workflow_dispatch:
+
+# 连续推送时只保留最新一次构建
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 发布 Release 需要写权限
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # 拉取子模块
+
+      # 与 Android Studio 自带的 JetBrains Runtime 21 保持一致
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'jetbrains'
+          java-version: '21'
+        env:
+          # jetbrains 安装器通过 GitHub API 查询版本，带上 token 避免被限流
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需在此提前安装依赖
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Prepare build files
+        env:
+          KEY_BASE64: ${{ secrets.KEY_BASE64 }}
+          SIGNING_CONFIG: ${{ secrets.SIGNING_CONFIG }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          # 没有签名就打不出可安装的 release 包，直接报错提示
+          if [ -z "$KEY_BASE64" ] || [ -z "$SIGNING_CONFIG" ]; then
+            echo "::error::缺少 KEY_BASE64 / SIGNING_CONFIG secret，请先在仓库 Settings → Secrets and variables → Actions 中配置"
+            exit 1
+          fi
+          # keystore 和签名配置（SIGNING_CONFIG 中 storeFile=app.key，相对 app 模块）
+          echo "$KEY_BASE64" | base64 -d > app/app.key
+          printf '%s\n' "$SIGNING_CONFIG" > local.properties
+
+          # Firebase 配置：没有真实配置时使用占位文件，统计与崩溃上报不生效但不影响使用
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          else
+            cp .github/ci/google-services.placeholder.json app/google-services.json
+          fi
+
+      - name: Gradle Build
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Collect APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk dist/rikkahub-arm64-v8a.apk
+          cp app/build/outputs/apk/release/app-universal-release.apk dist/rikkahub-universal.apk
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      # 删除上一次的发布，让 dev tag 始终指向最新提交
+      - name: Remove previous release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete dev --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+
+      # 发布为 Release，手机浏览器点链接即可下载单个 apk，无需登录、无需解压
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          target_commitish: ${{ github.sha }}
+          name: 最新构建 ${{ env.SHORT_SHA }}
+          make_latest: true
+          body: |
+            推送自动构建（commit `${{ github.sha }}`）
+
+            - 大多数手机下载 `rikkahub-arm64-v8a.apk`
+            - 安装提示架构不兼容时下载 `rikkahub-universal.apk`
+          files: dist/*.apk
