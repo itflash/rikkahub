@@ -7,6 +7,16 @@ import org.junit.Test
 class WorkspaceReminderTransformerTest {
 
     @Test
+    fun `files prompt describes a plain project without shell`() {
+        val prompt = buildFilesWorkspacePrompt("project", "/workspace/css")
+        org.junit.Assert.assertTrue(prompt.contains("NO shell and NO Linux environment"))
+        org.junit.Assert.assertTrue(prompt.contains("workspace_list_files"))
+        org.junit.Assert.assertTrue(prompt.contains("Current working directory: `/workspace/css`"))
+        org.junit.Assert.assertFalse(buildFilesWorkspacePrompt("project", null).contains("Current working directory"))
+        org.junit.Assert.assertTrue(HTML_PROJECT_GUIDELINES.contains("<html_project_guidelines>"))
+    }
+
+    @Test
     fun `os-release should prefer pretty name`() {
         val content = """
             NAME="Alpine Linux"

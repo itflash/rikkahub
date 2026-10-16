@@ -51,14 +51,20 @@ class WorkspaceManager(
         root: String,
         path: String = "",
         area: WorkspaceStorageArea = WorkspaceStorageArea.FILES,
+        maxEntries: Int = config.maxListEntries,
+        includeHidden: Boolean = true,
     ): List<WorkspaceFileEntry> =
-        fileSystem.list(areaDir(root, area), path)
+        fileSystem.list(areaDir(root, area), path, maxEntries, includeHidden)
 
     fun readText(
         root: String,
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
-    ): String = fileSystem.readText(filesDir(root), path, charset)
+        maxBytes: Long = config.maxReadBytes,
+    ): String = fileSystem.readText(filesDir(root), path, charset, maxBytes)
+
+    fun mkdirs(root: String, path: String, area: WorkspaceStorageArea = WorkspaceStorageArea.FILES): WorkspaceFileEntry =
+        fileSystem.mkdirs(areaDir(root, area), path)
 
     fun writeText(
         root: String,
@@ -89,6 +95,12 @@ class WorkspaceManager(
         require(file.exists()) { "File does not exist: $path" }
         require(file.isFile) { "Path is not a file: $path" }
         return file.length()
+    }
+
+    fun resolveDirectory(root: String, path: String, area: WorkspaceStorageArea = WorkspaceStorageArea.FILES): File {
+        val directory = fileSystem.resolve(areaDir(root, area), path)
+        require(directory.isDirectory) { "Path is not a directory: $path" }
+        return directory
     }
 
     fun resolveFile(

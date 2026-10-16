@@ -31,6 +31,13 @@ class RootfsPathResolutionTest {
     }
 
     @Test
+    fun resolvesDirectoryWithoutChangingResolveFileContract() {
+        val manager = createManager()
+        assertEquals(manager.filesDir(root).canonicalFile, manager.resolveDirectory(root, ""))
+        assertThrows(IllegalArgumentException::class.java) { manager.resolveFile(root, "") }
+    }
+
+    @Test
     fun readsFileWrittenThroughBindMountPath() {
         manager = createManager()
         File(skillsDir, "issue-1561").mkdirs()

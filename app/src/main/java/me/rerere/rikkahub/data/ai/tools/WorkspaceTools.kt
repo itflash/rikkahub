@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -19,6 +20,10 @@ import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.ByteArrayOutputStream
+import java.nio.file.Paths
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import me.rerere.workspace.WorkspaceStorageArea
 
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
@@ -28,6 +33,8 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_write_file" to false,
     "workspace_edit_file" to false,
     "workspace_shell" to true,
+    "workspace_list_files" to false,
+    "workspace_delete_file" to true,
 )
 
 fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
@@ -37,6 +44,7 @@ suspend fun createWorkspaceTools(
     workspaceId: String?,
     workspaceRepository: WorkspaceRepository,
     cwd: String? = null,
+    shellAvailable: Boolean = true,
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val approvalOverrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
@@ -44,12 +52,19 @@ suspend fun createWorkspaceTools(
 
     val shellCwd = cwd?.removePrefix("/workspace/")?.removePrefix("/workspace")
 
-    return listOf(
-        createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
-    )
+    val access: WorkspaceFileAccess = if (shellAvailable) {
+        RootfsFileAccess(workspaceId, workspaceRepository)
+    } else {
+        FilesAreaFileAccess(workspaceId, workspaceRepository)
+    }
+    return buildList {
+        add(createReadFileTool(::needsApproval, access))
+        add(createWriteFileTool(::needsApproval, access))
+        add(createEditFileTool(::needsApproval, access))
+        add(createListFilesTool(workspaceId, ::needsApproval, workspaceRepository))
+        add(createDeleteFileTool(workspaceId, ::needsApproval, workspaceRepository))
+        if (shellAvailable) add(createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd))
+    }
 }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -60,13 +75,12 @@ private fun String.isImagePath(): Boolean =
     substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
 private fun createReadFileTool(
-    workspaceId: String,
     needsApproval: (String) -> Boolean,
-    workspaceRepository: WorkspaceRepository,
+    access: WorkspaceFileAccess,
 ) = Tool(
     name = "workspace_read_file",
     description = """
-        Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
+        Read a file in the bound workspace. Paths must be absolute; without Linux only /workspace is available.
         Use /workspace for the workspace files area.
         Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico).
     """.trimIndent().replace("\n", " "),
@@ -82,9 +96,9 @@ private fun createReadFileTool(
     execute = {
         val path = it.jsonObject.absolutePath("path")
         if (path.isImagePath()) {
-            workspaceRepository.readImageInRootfs(workspaceId, path)
+            imageParts(path, access.readBytes(path))
         } else {
-            val text = workspaceRepository.readTextInRootfs(workspaceId, path)
+            val text = access.readText(path)
             listOf(
                 UIMessagePart.Text(
                     buildJsonObject {
@@ -98,13 +112,12 @@ private fun createReadFileTool(
 )
 
 private fun createWriteFileTool(
-    workspaceId: String,
     needsApproval: (String) -> Boolean,
-    workspaceRepository: WorkspaceRepository,
+    access: WorkspaceFileAccess,
 ) = Tool(
     name = "workspace_write_file",
     description = """
-        Write a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
+        Write a UTF-8 text file in the bound workspace. Paths must be absolute; without Linux only /workspace is available.
         Use /workspace for the workspace files area.
     """.trimIndent().replace("\n", " "),
     parameters = {
@@ -129,19 +142,18 @@ private fun createWriteFileTool(
         val path = params.absolutePath("path")
         val text = params.string("text") ?: error("text is required")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
-        val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, text, overwrite)
+        val entry = access.writeText(path, text, overwrite)
         listOf(UIMessagePart.Text(entry.toJson().toString()))
     },
 )
 
 private fun createEditFileTool(
-    workspaceId: String,
     needsApproval: (String) -> Boolean,
-    workspaceRepository: WorkspaceRepository,
+    access: WorkspaceFileAccess,
 ) = Tool(
     name = "workspace_edit_file",
     description = """
-        Edit a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
+        Edit a UTF-8 text file in the bound workspace. Paths must be absolute; without Linux only /workspace is available.
         Use /workspace for the workspace files area.
         Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
         If no exact match is found, whitespace-tolerant line matching is attempted automatically.
@@ -175,14 +187,14 @@ private fun createEditFileTool(
         val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         require(oldText.isNotEmpty()) { "old_text must not be empty" }
 
-        val original = workspaceRepository.readTextInRootfs(workspaceId, path)
+        val original = access.readText(path)
         // 逐级尝试 exact -> line_trimmed -> block_anchor 替换器, 见 TextReplacers.kt
         val result = try {
             replaceText(original, oldText, newText, replaceAll)
         } catch (e: IllegalArgumentException) {
             error("${e.message} (path: $path)")
         }
-        val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, result.updated, overwrite = true)
+        val entry = access.writeText(path, result.updated, overwrite = true)
         val diff = generateUnifiedDiff(original, result.updated, entry.path)
         listOf(
             UIMessagePart.Text(
@@ -292,12 +304,7 @@ private suspend fun WorkspaceRepository.readRootfsBuffer(
     return ByteArrayOutputStream(size.toInt()).also { exportRootfsFile(workspaceId, path, it) }
 }
 
-private suspend fun WorkspaceRepository.readImageInRootfs(
-    workspaceId: String,
-    path: String,
-): List<UIMessagePart> {
-    val bytes = readRootfsBuffer(workspaceId, path).toByteArray()
-
+private suspend fun imageParts(path: String, bytes: ByteArray): List<UIMessagePart> {
     val filesManager = getKoin().get<FilesManager>()
     val uris = filesManager.createChatFilesByByteArrays(listOf(bytes))
     return listOf(
@@ -399,7 +406,7 @@ private fun String.parseRootfsEntries(): List<WorkspaceFileEntry> {
 private fun kotlinx.serialization.json.JsonObject.absolutePath(name: String): String {
     val path = string(name)?.replace('\\', '/')?.trim() ?: error("$name is required")
     require(path.isNotBlank()) { "$name is required" }
-    require(path.startsWith("/")) { "$name must be an absolute path inside Rootfs" }
+    require(path.startsWith("/")) { "$name must be an absolute path in the workspace" }
     require(!path.contains('\u0000')) { "$name contains invalid character" }
     return path
 }
@@ -435,7 +442,7 @@ private fun JsonObjectBuilder.putPathProperty(required: Boolean) {
             if (required) {
                 "Absolute path inside Rootfs. Use /workspace for the workspace files area."
             } else {
-                "Optional absolute path inside Rootfs. Use /workspace for the workspace files area."
+                "Optional absolute path in the workspace. Use /workspace for the workspace files area."
             }
         )
     })
@@ -448,3 +455,110 @@ private fun WorkspaceFileEntry.toJson() = buildJsonObject {
     put("sizeBytes", sizeBytes)
     put("updatedAt", updatedAt)
 }
+
+
+internal fun String.toFilesAreaPath(): String {
+    require(startsWith('/') && !contains('\u0000')) { "Invalid absolute path: $this" }
+    val normalized = Paths.get(this).normalize().toString()
+    require(normalized == "/workspace" || normalized.startsWith("/workspace/")) {
+        "No Linux environment in this workspace. Only paths under /workspace are available: $this"
+    }
+    return normalized.removePrefix("/workspace").removePrefix("/")
+}
+
+private fun WorkspaceFileEntry.toRootfsView() =
+    copy(path = if (path.isEmpty()) "/workspace" else "/workspace/$path")
+
+private interface WorkspaceFileAccess {
+    suspend fun readText(path: String): String
+    suspend fun readBytes(path: String): ByteArray
+    suspend fun writeText(path: String, text: String, overwrite: Boolean): WorkspaceFileEntry
+}
+
+private class RootfsFileAccess(val id: String, val repository: WorkspaceRepository) : WorkspaceFileAccess {
+    override suspend fun readText(path: String) = repository.readTextInRootfs(id, path)
+    override suspend fun readBytes(path: String) = repository.readRootfsBuffer(id, path).toByteArray()
+    override suspend fun writeText(path: String, text: String, overwrite: Boolean) =
+        repository.writeTextInRootfs(id, path, text, overwrite)
+}
+
+private class FilesAreaFileAccess(val id: String, val repository: WorkspaceRepository) : WorkspaceFileAccess {
+    override suspend fun readText(path: String): String =
+        repository.readText(id, path.toFilesAreaPath(), maxBytes = MAX_READ_FILE_BYTES)
+    override suspend fun readBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        val file = repository.resolveFile(id, WorkspaceStorageArea.FILES, path.toFilesAreaPath())
+        require(file.isFile && file.length() <= MAX_READ_FILE_BYTES) { "Invalid or oversized image: $path" }
+        file.inputStream().use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (output.size() <= MAX_READ_FILE_BYTES) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+            }
+            val bytes = output.toByteArray()
+            require(bytes.size <= MAX_READ_FILE_BYTES) { "File is too large: $path" }
+            bytes
+        }
+    }
+    override suspend fun writeText(path: String, text: String, overwrite: Boolean): WorkspaceFileEntry =
+        repository.writeText(id, path.toFilesAreaPath(), text, overwrite).toRootfsView().also { repository.touch(id) }
+}
+
+private fun createListFilesTool(id: String, approval: (String) -> Boolean, repository: WorkspaceRepository) = Tool(
+    name = "workspace_list_files",
+    description = "List files under /workspace, skipping hidden files. Returns at most 500 entries.",
+    parameters = {
+        InputSchema.Obj(properties = buildJsonObject {
+            putPathProperty(required = false)
+            put("recursive", buildJsonObject { put("type", "boolean"); put("description", "Defaults to true") })
+        })
+    },
+    needsApproval = { approval("workspace_list_files") },
+    execute = {
+        val params = it.jsonObject
+        val path = params.string("path") ?: "/workspace"
+        val recursive = params["recursive"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
+        val entries = mutableListOf<WorkspaceFileEntry>()
+        val visited = mutableSetOf<String>()
+        suspend fun visit(relative: String) {
+            val canonical = repository.resolveDirectory(id, WorkspaceStorageArea.FILES, relative).canonicalPath
+            if (!visited.add(canonical)) return
+            for (entry in repository.listFiles(id, WorkspaceStorageArea.FILES, relative, maxEntries = 501, includeHidden = false)) {
+                if (entry.name.startsWith('.')) continue
+                entries.add(entry.toRootfsView())
+                if (entries.size > 500) return
+                if (recursive && entry.isDirectory) visit(entry.path)
+                if (entries.size > 500) return
+            }
+        }
+        visit(path.toFilesAreaPath())
+        listOf(UIMessagePart.Text(buildJsonObject {
+            put("path", path)
+            put("entries", buildJsonArray { entries.take(500).forEach { add(it.toJson()) } })
+            if (entries.size > 500) put("truncated", true)
+        }.toString()))
+    },
+)
+
+private fun createDeleteFileTool(id: String, approval: (String) -> Boolean, repository: WorkspaceRepository) = Tool(
+    name = "workspace_delete_file",
+    description = "Delete a file or directory under /workspace. Directory deletion requires recursive=true. Cannot delete the project root.",
+    parameters = {
+        InputSchema.Obj(properties = buildJsonObject {
+            putPathProperty(required = true)
+            put("recursive", buildJsonObject { put("type", "boolean"); put("description", "Defaults to false") })
+        }, required = listOf("path"))
+    },
+    needsApproval = { approval("workspace_delete_file") },
+    execute = {
+        val params = it.jsonObject
+        val path = params.absolutePath("path")
+        val relative = path.toFilesAreaPath()
+        require(relative.isNotEmpty()) { "Cannot delete /workspace" }
+        val recursive = params["recursive"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+        check(repository.deleteFile(id, WorkspaceStorageArea.FILES, relative, recursive)) { "File does not exist or could not be deleted: $path" }
+        repository.touch(id)
+        listOf(UIMessagePart.Text(buildJsonObject { put("path", path); put("deleted", true) }.toString()))
+    },
+)

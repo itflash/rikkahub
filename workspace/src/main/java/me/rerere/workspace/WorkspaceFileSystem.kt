@@ -12,23 +12,23 @@ import kotlin.io.path.name
 class WorkspaceFileSystem(
     private val config: WorkspaceConfig = WorkspaceConfig(),
 ) {
-    fun list(root: File, path: String = ""): List<WorkspaceFileEntry> {
+    fun list(root: File, path: String = "", maxEntries: Int = config.maxListEntries, includeHidden: Boolean = true): List<WorkspaceFileEntry> {
         val dir = resolvePath(root, path)
         require(dir.exists()) { "Path does not exist: $path" }
         require(dir.isDirectory) { "Path is not a directory: $path" }
         return dir.listFiles()
             .orEmpty()
-            .filter { !it.name.startsWith(".l2s.") }
+            .filter { !it.name.startsWith(".l2s.") && (includeHidden || !it.name.startsWith('.')) }
             .sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
-            .take(config.maxListEntries)
+            .take(maxEntries)
             .map { it.toEntry(root) }
     }
 
-    fun readText(root: File, path: String, charset: Charset = StandardCharsets.UTF_8): String {
+    fun readText(root: File, path: String, charset: Charset = StandardCharsets.UTF_8, maxBytes: Long = config.maxReadBytes): String {
         val file = resolvePath(root, path)
         require(file.exists()) { "File does not exist: $path" }
         require(file.isFile) { "Path is not a file: $path" }
-        require(file.length() <= config.maxReadBytes) {
+        require(file.length() <= maxBytes) {
             "File is too large to read: ${file.length()} bytes"
         }
         return file.readText(charset)
@@ -53,6 +53,13 @@ class WorkspaceFileSystem(
         return file.toEntry(root)
     }
 
+    fun mkdirs(root: File, path: String): WorkspaceFileEntry {
+        val directory = resolvePath(root, path)
+        require(!directory.exists() || directory.isDirectory) { "Path is not a directory: $path" }
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create directory: $path" }
+        return directory.toEntry(root)
+    }
+
     fun importBytes(root: File, path: String, inputStream: InputStream): WorkspaceFileEntry {
         val file = resolvePath(root, path)
         file.parentFile?.mkdirs()
@@ -73,6 +80,7 @@ class WorkspaceFileSystem(
     fun delete(root: File, path: String, recursive: Boolean = false): Boolean {
         require(path.isNotBlank() && path != ".") { "Refusing to delete workspace root" }
         val file = resolvePath(root, path)
+        require(file != root.canonicalFile) { "Refusing to delete workspace root" }
         if (!file.exists()) return false
         return if (file.isDirectory) {
             require(recursive) { "Directory delete requires recursive = true" }

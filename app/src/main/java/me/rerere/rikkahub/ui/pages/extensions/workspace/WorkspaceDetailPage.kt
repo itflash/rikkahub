@@ -556,6 +556,8 @@ private fun workspaceToolApprovalItems() = listOf(
     Triple("workspace_read_file", stringResource(R.string.workspace_detail_tool_read_file), HugeIcons.FileView),
     Triple("workspace_write_file", stringResource(R.string.workspace_detail_tool_write_file), HugeIcons.PencilEdit01),
     Triple("workspace_edit_file", stringResource(R.string.workspace_detail_tool_edit_file), HugeIcons.FileEdit),
+    Triple("workspace_list_files", "列出文件", HugeIcons.FileView),
+    Triple("workspace_delete_file", "删除文件", HugeIcons.FileEdit),
     Triple("workspace_shell", stringResource(R.string.workspace_detail_tool_shell), HugeIcons.ComputerTerminal01),
 )
 

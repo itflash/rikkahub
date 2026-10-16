@@ -14,10 +14,8 @@ import java.nio.file.Paths
 /**
  * Workspace 系统提示注入转换器
  *
- * 当助手绑定了一个 shell 已就绪的 workspace 时, 在系统提示词中追加一段引导,
- * 让模型了解 workspace 环境与 workspace_* 工具的使用方式。
- * 提示中包含 Rootfs 实际使用的 shell 与发行版, 避免模型默认按 bash / apt 来写命令。
- * 同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令。
+ * 为绑定的工作区注入文件工具与 HTML 创作约定；无需安装 Linux 环境。
+ * Rootfs 就绪时保留 shell、发行版与分层 AGENTS.md 指引，否则只读取 FILES 区的 AGENTS.md。
  */
 class WorkspaceReminderTransformer(
     private val workspaceRepository: WorkspaceRepository,
@@ -28,15 +26,14 @@ class WorkspaceReminderTransformer(
     ): List<UIMessage> {
         val workspaceId = ctx.assistant.workspaceId?.toString() ?: return messages
         val workspace = workspaceRepository.getById(workspaceId) ?: return messages
-        // 与 ChatToolFactory.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
-
-        val prompt = buildWorkspacePrompt(
-            workspace = workspace,
-            shell = workspaceRepository.rootfsShell(workspaceId),
-            distro = readDistroName(workspaceId),
-            cwd = ctx.workspaceCwd,
-        ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+        val prompt = if (workspace.shellStatus == WorkspaceShellStatus.READY.name) {
+            buildWorkspacePrompt(
+                workspace, workspaceRepository.rootfsShell(workspaceId), readDistroName(workspaceId), ctx.workspaceCwd,
+            ) + "\n\n" + HTML_PROJECT_GUIDELINES + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+        } else {
+            buildFilesWorkspacePrompt(workspace.name, ctx.workspaceCwd) + "\n\n" + HTML_PROJECT_GUIDELINES +
+                buildFilesAgentsPrompt(workspaceId)
+        }
 
         // 追加到第一条 system 消息; 若不存在则插入一条
         val systemIndex = messages.indexOfFirst { it.role == MessageRole.SYSTEM }
@@ -49,6 +46,17 @@ class WorkspaceReminderTransformer(
         } else {
             listOf(UIMessage.system(prompt).copy(isSynthetic = true)) + messages
         }
+    }
+
+    private suspend fun buildFilesAgentsPrompt(id: String): String = try {
+        require(workspaceRepository.fileSize(id, me.rerere.workspace.WorkspaceStorageArea.FILES, "AGENTS.md") <= MAX_AGENTS_BYTES)
+        val content = workspaceRepository.readText(id, "AGENTS.md")
+        if (content.isBlank()) "" else "\n\n<workspace_instructions>\nFollow the AGENTS.md instructions below.\nAGENTS.md source: /workspace/AGENTS.md\n$content\n</workspace_instructions>"
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.d("WorkspaceReminder", "Skipping workspace AGENTS.md", e)
+        ""
     }
 
     private suspend fun buildAgentsPrompt(workspaceId: String, cwd: String?): String {
@@ -167,3 +175,30 @@ private fun UIMessage.appendText(extra: String): UIMessage {
     }
     return copy(parts = updatedParts)
 }
+
+
+internal fun buildFilesWorkspacePrompt(name: String, cwd: String?): String = buildString {
+    appendLine("<workspace>")
+    appendLine("You are working in a project folder named \"$name\". It is a plain file area, there is NO shell and NO Linux environment.")
+    appendLine("- The project root is `/workspace`. All tool paths must be absolute and inside `/workspace` (for example `/workspace/index.html`).")
+    appendLine("- Available tools:")
+    appendLine("  - `workspace_list_files`: list files in the project.")
+    appendLine("  - `workspace_read_file`: read a file.")
+    appendLine("  - `workspace_write_file`: create or overwrite a file.")
+    appendLine("  - `workspace_edit_file`: make precise edits to an existing file. Prefer it over rewriting whole files.")
+    appendLine("  - `workspace_delete_file`: delete a file or folder.")
+    if (!cwd.isNullOrBlank()) appendLine("- Current working directory: `$cwd`.")
+    append("</workspace>")
+}
+
+internal val HTML_PROJECT_GUIDELINES = """
+<html_project_guidelines>
+This project is a web page that the user previews on a phone and shares to chat apps such as WeChat.
+- The entry page is `/workspace/index.html`. Put CSS, JS, images and other assets in the project and reference them with relative paths (e.g. `css/style.css`).
+- Do NOT load anything from external CDNs or web font services (Google Fonts, jsDelivr, unpkg, cdnjs, Tailwind CDN, etc.). They are often unreachable for the user. If a library is needed, write it into the project as a local file; prefer plain CSS/JS. Use inline SVG for icons. Use system font stacks.
+- Design mobile-first for a 390 CSS px wide viewport. Always include `<meta name="viewport" content="width=device-width, initial-scale=1">`.
+- For normal content pages, let the page scroll naturally; do not lock the whole page to `100vh` with `overflow: hidden`.
+- For slide decks, make each slide a direct child `<section>` of `<body>` (or `<main>`) with height `100vh`, so each slide can be exported as one image.
+- After creating or changing files, briefly tell the user what changed. The user previews the result in the app.
+</html_project_guidelines>
+""".trimIndent()

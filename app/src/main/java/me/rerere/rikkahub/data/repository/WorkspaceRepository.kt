@@ -76,6 +76,17 @@ class WorkspaceRepository(
         return workspace
     }
 
+    suspend fun touch(id: String) {
+        val workspace = dao.getById(id) ?: return
+        dao.upsert(workspace.copy(lastAccessAt = System.currentTimeMillis()))
+    }
+
+    suspend fun mkdirs(id: String, path: String): WorkspaceFileEntry = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.mkdirs(workspace.root, path).also { touch(id) }
+    }
+
     suspend fun rename(id: String, name: String): Boolean {
         val workspace = dao.getById(id) ?: return false
         val finalName = name.trim().ifBlank { workspace.name }
@@ -148,19 +159,23 @@ class WorkspaceRepository(
         id: String,
         area: WorkspaceStorageArea,
         path: String,
+        maxEntries: Int = 500,
+        includeHidden: Boolean = true,
     ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext emptyList()
         manager.ensureWorkspace(workspace.root)
-        manager.listFiles(workspace.root, path, area)
+        manager.listFiles(workspace.root, path, area, maxEntries, includeHidden)
     }
 
     suspend fun readText(
         id: String,
         path: String,
+        maxBytes: Long? = null,
     ): String = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         manager.ensureWorkspace(workspace.root)
-        manager.readText(workspace.root, path)
+        if (maxBytes == null) manager.readText(workspace.root, path)
+        else manager.readText(workspace.root, path, maxBytes = maxBytes)
     }
 
     suspend fun writeText(
@@ -220,6 +235,12 @@ class WorkspaceRepository(
     ): Long = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         manager.fileSize(workspace.root, path, area)
+    }
+
+    suspend fun resolveDirectory(id: String, area: WorkspaceStorageArea, path: String): java.io.File = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.resolveDirectory(workspace.root, path, area)
     }
 
     suspend fun resolveFile(

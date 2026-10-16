@@ -107,6 +107,8 @@ object ToolUIRegistry {
         ConversationSearchToolUI,
         EditFileToolUI,
         ReadFileToolUI,
+        ListFilesToolUI,
+        DeleteFileToolUI,
         WriteFileToolUI,
         ShellToolUI,
     ).plus(MemoryFileToolUI.all).associateBy { it.toolName }

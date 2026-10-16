@@ -458,3 +458,24 @@ private fun languageOf(path: String?): String = when (
     "gradle" -> "groovy"
     else -> "plaintext"
 }
+
+
+object ListFilesToolUI : ToolUIRenderer {
+    override val toolName = "workspace_list_files"
+    @Composable
+    override fun title(context: ToolUIContext) = "列出文件 ${context.arguments.getStringContent("path") ?: "/workspace"}"
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        val entries = context.content?.jsonObjectOrNull?.get("entries") as? kotlinx.serialization.json.JsonArray
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+            entries?.take(50)?.forEach { Text(it.getStringContent("path") ?: "", style = MaterialTheme.typography.bodySmall) }
+            if ((entries?.size ?: 0) > 50) Text("仅显示前 50 项")
+        }
+    }
+}
+
+object DeleteFileToolUI : ToolUIRenderer {
+    override val toolName = "workspace_delete_file"
+    @Composable
+    override fun title(context: ToolUIContext) = "删除文件 ${context.arguments.getStringContent("path") ?: ""}"
+}
