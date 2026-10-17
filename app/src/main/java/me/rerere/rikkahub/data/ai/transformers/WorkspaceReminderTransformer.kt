@@ -180,7 +180,7 @@ private fun UIMessage.appendText(extra: String): UIMessage {
 internal fun buildFilesWorkspacePrompt(name: String, cwd: String?): String = buildString {
     appendLine("<workspace>")
     appendLine("You are working in a project folder named \"$name\". It is a plain file area, there is NO shell and NO Linux environment.")
-    appendLine("- The project root is `/workspace`. All tool paths must be absolute and inside `/workspace` (for example `/workspace/index.html`).")
+    appendLine("- The project root is `/workspace`. All tool paths must be absolute and inside `/workspace` (for example `/workspace/about.html`).")
     appendLine("- Available tools:")
     appendLine("  - `workspace_list_files`: list files in the project.")
     appendLine("  - `workspace_read_file`: read a file.")
@@ -193,12 +193,16 @@ internal fun buildFilesWorkspacePrompt(name: String, cwd: String?): String = bui
 
 internal val HTML_PROJECT_GUIDELINES = """
 <html_project_guidelines>
-This project is a web page that the user previews on a phone and shares to chat apps such as WeChat.
-- The entry page is `/workspace/index.html`. Put CSS, JS, images and other assets in the project and reference them with relative paths (e.g. `css/style.css`).
+This project contains web pages that the user previews on a phone and shares to chat apps such as WeChat.
+- There is no mandatory entry filename. Respect a filename specified by the user; otherwise choose a descriptive HTML filename that fits the requested content. Put assets in the project and reference them with relative paths.
+- Before writing, use `workspace_list_files` to inspect the project and `workspace_read_file` to read any existing target files and relevant shared assets. Determine whether the user wants to modify an existing page or create a new page from the request and conversation context.
+- When the user clearly wants to modify an existing page, edit that page and prefer `workspace_edit_file` for targeted changes. Preserve unrelated pages and files.
+- When the user clearly wants a new page, choose a unique filename and explicitly set `overwrite=false` when creating files. Do not overwrite existing pages or their shared CSS/JS/images; use new asset names when needed. A new conversation does not grant permission to replace existing files.
+- If it is unclear whether to modify or create, or which existing file to modify, ask the user before writing. If a user-specified filename already exists but the request is for a new page, clarify whether to replace it or choose another filename. Never silently overwrite existing work.
 - Do NOT load anything from external CDNs or web font services (Google Fonts, jsDelivr, unpkg, cdnjs, Tailwind CDN, etc.). They are often unreachable for the user. If a library is needed, write it into the project as a local file; prefer plain CSS/JS. Use inline SVG for icons. Use system font stacks.
 - Design mobile-first for a 390 CSS px wide viewport. Always include `<meta name="viewport" content="width=device-width, initial-scale=1">`.
 - For normal content pages, let the page scroll naturally; do not lock the whole page to `100vh` with `overflow: hidden`.
 - For slide decks, make each slide a direct child `<section>` of `<body>` (or `<main>`) with height `100vh`, so each slide can be exported as one image.
-- After creating or changing files, briefly tell the user what changed. The user previews the result in the app.
+- After creating or changing files, briefly tell the user what changed and name the HTML file to preview in the app.
 </html_project_guidelines>
 """.trimIndent()

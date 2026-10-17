@@ -119,6 +119,9 @@ private fun createWriteFileTool(
     description = """
         Write a UTF-8 text file in the bound workspace. Paths must be absolute; without Linux only /workspace is available.
         Use /workspace for the workspace files area.
+        For a new file, choose a non-conflicting path and explicitly set overwrite=false.
+        Read an existing file before replacing it, and only replace it when the user's request or conversation context clearly asks to modify that file.
+        If creating versus modifying or the target file is unclear, ask the user before writing.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -130,7 +133,7 @@ private fun createWriteFileTool(
                 })
                 put("overwrite", buildJsonObject {
                     put("type", "boolean")
-                    put("description", "Whether to overwrite an existing file. Defaults to true.")
+                    put("description", "Whether to overwrite an existing file. Defaults to true for compatibility; explicitly use false when creating a new file.")
                 })
             },
             required = listOf("path", "text"),
