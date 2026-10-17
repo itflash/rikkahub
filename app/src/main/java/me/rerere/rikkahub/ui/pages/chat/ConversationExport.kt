@@ -499,8 +499,8 @@ private fun ExportedChatImage(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        // Use painterResource for the logo
-                        val painter = painterResource(id = R.mipmap.ic_launcher_foreground)
+                        // Use a full tile: the adaptive foreground alone is white on transparent.
+                        val painter = painterResource(id = R.drawable.ic_brand_logo)
                         Image(
                             painter = painter,
                             contentDescription = "Logo",
