@@ -1598,4 +1598,6 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="setting_display_page_enable_quote_highlight_desc">引用符内のテキストをテーマカラーで着色し、キャラクターのセリフを目立たせます</string>
   <string name="workspace_detail_copy_path">パスをコピー</string>
   <string name="workspace_detail_path_copied">パスをコピーしました</string>
+  <string name="chat_input_edit_reasoning">推論を編集</string>
+  <string name="chat_input_reasoning_placeholder">推論内容</string>
 </resources>

@@ -1596,4 +1596,6 @@ https://github.com/itflash/rikkahub</string>
   <string name="setting_display_page_enable_quote_highlight_desc">تلوين النص داخل علامات الاقتباس بلون السمة لإبراز حوار الشخصيات</string>
   <string name="workspace_detail_copy_path">نسخ المسار</string>
   <string name="workspace_detail_path_copied">تم نسخ المسار</string>
+  <string name="chat_input_edit_reasoning">تعديل الاستدلال</string>
+  <string name="chat_input_reasoning_placeholder">محتوى الاستدلال</string>
 </resources>

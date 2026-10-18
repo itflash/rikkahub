@@ -1596,4 +1596,6 @@ https://github.com/itflash/rikkahub</string>
   <string name="setting_display_page_enable_quote_highlight_desc">Color text inside quotation marks with the theme color to make character dialogue stand out</string>
   <string name="workspace_detail_copy_path">Copy path</string>
   <string name="workspace_detail_path_copied">Path copied</string>
+  <string name="chat_input_edit_reasoning">Edit reasoning</string>
+  <string name="chat_input_reasoning_placeholder">Reasoning content</string>
 </resources>

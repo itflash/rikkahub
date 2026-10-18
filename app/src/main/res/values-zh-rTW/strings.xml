@@ -1596,4 +1596,6 @@ https://github.com/itflash/rikkahub</string>
   <string name="setting_display_page_enable_quote_highlight_desc">將引號內的文字以主題顏色標示，讓角色對話更突出</string>
   <string name="workspace_detail_copy_path">複製路徑</string>
   <string name="workspace_detail_path_copied">路徑已複製</string>
+  <string name="chat_input_edit_reasoning">編輯推理</string>
+  <string name="chat_input_reasoning_placeholder">推理內容</string>
 </resources>
