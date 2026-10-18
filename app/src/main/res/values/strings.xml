@@ -1601,4 +1601,6 @@ https://github.com/itflash/rikkahub</string>
   <string name="workspace_detail_path_copied">Path copied</string>
   <string name="chat_input_edit_reasoning">Edit reasoning</string>
   <string name="chat_input_reasoning_placeholder">Reasoning content</string>
+  <string name="assistant_page_memory_auto_dream">Auto dream</string>
+  <string name="assistant_page_memory_auto_dream_desc">Turn chats into memories in the background once they pause. When off, this only happens when you tap Dream now</string>
 </resources>

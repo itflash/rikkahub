@@ -1339,9 +1339,6 @@ class ChatService(
             persist = { conversationRepo.updateConversationFolderId(conversationId, folderId) },
         )
     }
-        }
-        conversationRepo.updateConversationFolderId(conversationId, folderId)
-    }
 
     /**
      * 文件夹内是否存在正在生成回复的会话。
