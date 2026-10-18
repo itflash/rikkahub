@@ -1328,8 +1328,17 @@ class ChatService(
      * 先改内存可确保这段窗口内的整对象保存也带上新 folderId。
      */
     suspend fun moveConversationToFolder(conversationId: Uuid, folderId: Uuid?) {
-        if (sessionManager.get(conversationId) != null) {
-            updateConversationState(conversationId) { it.copy(folderId = folderId) }
+        if (sessionManager.get(conversationId) == null) {
+            conversationRepo.updateConversationFolderId(conversationId, folderId)
+            // 写库期间页面可能刚好打开了这个会话，加载时读到的可能是旧值，再同步一次内存
+            if (sessionManager.get(conversationId) == null) return
+        }
+        updateConversationMetadata(
+            conversationId = conversationId,
+            update = { it.copy(folderId = folderId) },
+            persist = { conversationRepo.updateConversationFolderId(conversationId, folderId) },
+        )
+    }
         }
         conversationRepo.updateConversationFolderId(conversationId, folderId)
     }
