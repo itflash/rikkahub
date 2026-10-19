@@ -36,6 +36,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Remove01
 import me.rerere.rikkahub.R
+import me.rerere.ui.components.OutlinedNumberInput
 
 @Composable
 fun CompressContextDialog(

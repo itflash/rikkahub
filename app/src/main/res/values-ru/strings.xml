@@ -1611,8 +1611,6 @@ https://github.com/itflash/rikkahub</string>
   <string name="assistant_page_memory_empty">Пока нет воспоминаний</string>
   <string name="assistant_page_memory_empty_hint">Ассистент будет запоминать то, что вы ему сообщаете, во время общения. Вы также можете нажать +, чтобы добавить воспоминание</string>
   <string name="assistant_page_memory_empty_disabled_hint">Память для этого ассистента отключена. Включите её, чтобы он запоминал то, что вы ему сообщаете</string>
-=======
   <string name="image_preview_saving">Сохранение…</string>
   <string name="image_preview_saved">Изображение сохранено</string>
->>>>>>> 96a9bed4 (fix(ui): 图片预览保存时「正在保存」提示在保存结束后收起，不再和保存结果提示叠在一起；Toaster 新增 showProgress 返回可收起的句柄，保存提示文案本地化 (#2167))
 </resources>

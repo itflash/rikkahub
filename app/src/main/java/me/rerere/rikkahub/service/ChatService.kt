@@ -1099,6 +1099,12 @@ class ChatService(
 
     // ---- 压缩对话历史 ----
 
+    /**
+     * 把上一个检查点之后的消息压缩成摘要检查点。
+     *
+     * [keepRecentMessages] 为 0 时压缩全部消息，请求和上一轮对话前缀一致，缓存命中最好；
+     * 大于 0 时最近的这些消息不参与压缩、留在检查点之后，对话已经超出模型上下文、整段发不出去时用来缩小压缩请求。
+     */
     suspend fun compressConversation(
         conversationId: Uuid,
         conversation: Conversation,
