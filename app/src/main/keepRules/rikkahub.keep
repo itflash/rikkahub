@@ -7,6 +7,9 @@
 # Keep source locations so release stack traces retain useful line information.
 -keepattributes SourceFile,LineNumberTable
 
+# Exception class names show up in error messages and logs; keep them readable.
+-keepnames class * extends java.lang.Throwable
+
 # Ktor references JVM-only management APIs from its debug detector.
 -dontwarn java.lang.management.ManagementFactory
 -dontwarn java.lang.management.RuntimeMXBean
@@ -51,4 +54,3 @@
 -dontwarn org.slf4j.**
 -dontwarn org.apache.logging.log4j.**
 -dontwarn org.ietf.jgss.**
->>>>>>> f267e847 (build: JLatexMath 改为只 keep 反射用到的类，不再整库保留)
