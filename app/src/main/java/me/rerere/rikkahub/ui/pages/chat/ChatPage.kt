@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.SuggestionChip
+import me.rerere.rikkahub.ui.components.ai.AgentRunPanel
 import me.rerere.rikkahub.ui.pages.projects.LocalProjectChat
 import me.rerere.rikkahub.ui.pages.projects.ProjectChatContext
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
@@ -356,9 +357,13 @@ private fun ChatPageContent(
                     )
                 },
                 bottomBar = {
+                    val agentRun by vm.agentRun.collectAsStateWithLifecycle()
                     val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                     val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                     Column {
+                    agentRun?.let { run ->
+                        AgentRunPanel(run = run, onStop = vm::stopGeneration)
+                    }
                     if (project != null && conversation.messageNodes.isEmpty()) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 12.dp),

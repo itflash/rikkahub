@@ -299,6 +299,8 @@ fun ChatInput(
 
                             AgentModeButton(
                                 mode = assistant.agentMode,
+                                maxSteps = assistant.agentMaxSteps,
+                                onMaxStepsChange = { onUpdateAssistant(assistant.copy(agentMaxSteps = it)) },
                                 enabled = !loading,
                                 onModeChange = { onUpdateAssistant(assistant.copy(agentMode = it)) },
                             )

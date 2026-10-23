@@ -84,6 +84,8 @@ class ChatVM(
             .getGenerationJobStateFlow(_conversationId)
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val agentRun = chatService.getAgentRunFlow(_conversationId)
+
     val processingStatus: StateFlow<String?> =
         chatService
             .getProcessingStatusFlow(_conversationId)

@@ -2,10 +2,13 @@ package me.rerere.rikkahub.ui.components.ai
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -29,6 +32,8 @@ fun AgentModeButton(
     mode: AgentMode,
     enabled: Boolean,
     onModeChange: (AgentMode) -> Unit,
+    maxSteps: Int,
+    onMaxStepsChange: (Int) -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) showPicker = false }
@@ -57,6 +62,29 @@ fun AgentModeButton(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (mode != AgentMode.CHAT) {
+                    CardGroup {
+                        formItem(
+                            headlineContent = { Text("任务步数上限：${maxSteps.coerceIn(1, 256)}") },
+                            supportingContent = {
+                                Text("每轮模型生成计一步，网络重试仍算同一步；审批续跑累计计算。修改仅对下一次新任务生效。")
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                listOf(8, 32, 64, 128).forEach { steps ->
+                                    FilterChip(
+                                        selected = maxSteps == steps,
+                                        onClick = { onMaxStepsChange(steps) },
+                                        label = { Text("$steps 步") },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 CardGroup {
                     AgentMode.entries.forEach { option ->
                         item(

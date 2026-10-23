@@ -50,6 +50,20 @@ class ConversationConfigTest {
     )
 
     @Test
+    fun `agent budget is snapshotted and edited only on the conversation`() {
+        val configured = assistant.copy(agentMaxSteps = 8)
+        val bound = conversation(configured).bindConfig(settings(configured))
+        val changed = settings(configured.copy(agentMaxSteps = 128))
+        assertEquals(8, changed.getAssistantOf(bound).agentMaxSteps)
+        val edited = changed.getAssistantOf(bound).copy(agentMaxSteps = 64)
+        assertEquals(64, bound.withAssistantUpdate(edited, changed).config?.agentMaxSteps)
+        assertEquals(8, edited.withoutConversationFields(bound, configured).agentMaxSteps)
+        assertEquals(32, Json.decodeFromString<ConversationConfig>("{}").agentMaxSteps)
+        val config = ConversationConfig(agentMode = AgentMode.PLAN, agentMaxSteps = 64)
+        assertEquals(config, Json.decodeFromString<ConversationConfig>(Json.encodeToString(config)))
+    }
+
+    @Test
     fun `unstarted conversation follows the assistant`() {
         val conversation = conversation()
 

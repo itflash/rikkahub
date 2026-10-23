@@ -41,6 +41,8 @@ import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.agent.AgentRun
+import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationLoop
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
@@ -269,6 +271,9 @@ class ChatService(
 
     fun getProcessingStatusFlow(conversationId: Uuid): StateFlow<String?> =
         sessionManager.getProcessingStatusFlow(conversationId)
+
+    fun getAgentRunFlow(conversationId: Uuid): StateFlow<AgentRun?> =
+        sessionManager.getOrCreate(conversationId).agentRun
 
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> = sessionManager.getConversationJobs()
 
@@ -625,7 +630,7 @@ class ChatService(
 
                     // Only continue generation when all pending tools are handled
                     if (!hasPendingTools) {
-                        handleMessageComplete(conversationId)
+                        handleMessageComplete(conversationId, resumeAgentRun = true)
                     }
 
                     _generationDoneFlow.emit(conversationId)
@@ -644,7 +649,8 @@ class ChatService(
 
     private suspend fun handleMessageComplete(
         conversationId: Uuid,
-        messageRange: ClosedRange<Int>? = null
+        messageRange: ClosedRange<Int>? = null,
+        resumeAgentRun: Boolean = false,
     ) {
         val settings = settingsStore.awaitLoaded()
         val initialConversation = getConversationFlow(conversationId).value
@@ -659,8 +665,12 @@ class ChatService(
             model.displayName
         }
         val useExternalWebSearch = shouldUseExternalWebSearch(assistant, model)
+        val session = sessionManager.getOrCreate(conversationId)
+        var agentRun: AgentRunTracker? = null
 
         runCatching {
+            agentRun = session.beginAgentRun(assistant.agentMode, assistant.agentMaxSteps, resumeAgentRun)
+
 
             // reset suggestions
             updateConversation(conversationId, initialConversation.copy(chatSuggestions = emptyList()))
@@ -688,6 +698,7 @@ class ChatService(
                     workspaceCwd = conversation.workspaceCwd,
                 )
             } catch (error: InvalidMcpServerNamesException) {
+                agentRun?.fail(error)
                 sessionManager.get(conversationId)?.messageQueue?.pause()
                 addError(
                     error = IllegalStateException(
@@ -702,11 +713,11 @@ class ChatService(
             }
 
             // start generating
-            val session = sessionManager.getOrCreate(conversationId)
             generationLoop.generateText(
                 settings = settings,
                 model = model,
                 processingStatus = session.processingStatus,
+                agentRun = agentRun,
                 messages = conversation.currentMessages.let {
                     if (messageRange != null) {
                         it.subList(messageRange.start, messageRange.endInclusive + 1)
@@ -759,6 +770,7 @@ class ChatService(
                 }
             }
         }.onFailure {
+            agentRun?.fail(it)
             // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             if (it is CancellationException) throw it
@@ -769,6 +781,7 @@ class ChatService(
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
+            agentRun?.complete()
             val finalConversation = getConversationFlow(conversationId).value
 
             sessionManager.launchWithSession(conversationId) {
@@ -1547,7 +1560,7 @@ class ChatService(
             session.messageQueue.pause()
             session.cancelJobs()
         }
-        if (jobs.isEmpty()) return
+        session.cancelAgentRun()
         jobs.forEach { it.join() }
         finishInterruptedPendingTools(conversationId)
     }

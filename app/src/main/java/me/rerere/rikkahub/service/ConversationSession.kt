@@ -8,10 +8,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.data.ai.agent.AgentRun
+import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
+import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
 import java.time.Instant
@@ -94,6 +98,41 @@ class ConversationSession(
     // 处理状态（如 OCR 识别中）
     val processingStatus = MutableStateFlow<String?>(null)
 
+    private val _agentRun = MutableStateFlow<AgentRun?>(null)
+    val agentRun: StateFlow<AgentRun?> = _agentRun.asStateFlow()
+    private var agentTracker: AgentRunTracker? = null
+
+    @Synchronized
+    fun beginAgentRun(mode: AgentMode, maxSteps: Int, resume: Boolean): AgentRunTracker? {
+        if (mode == AgentMode.CHAT) {
+            agentTracker?.fail(CancellationException("Switched to chat mode"))
+            agentTracker = null
+            _agentRun.value = null
+            return null
+        }
+        if (resume) {
+            val tracker = checkNotNull(agentTracker) {
+                "当前没有可恢复的 Agent 任务，无法安全恢复旧的工具调用。请停止旧调用后重新发起任务。"
+            }
+            tracker.resume(mode)
+            return tracker
+        }
+        agentTracker?.fail(CancellationException("Replaced by a new task"))
+        val tracker = AgentRunTracker(mode, maxSteps) { update ->
+            // A cancelled predecessor must not overwrite the next task's progress.
+            _agentRun.update { current -> if (current?.id == update.id) update else current }
+        }
+        agentTracker = tracker
+        _agentRun.value = tracker.snapshot
+        return tracker
+    }
+
+    @Synchronized
+    fun cancelAgentRun() {
+        agentTracker?.fail(CancellationException("Stopped by user"))
+        if (refCount.get() <= 0 && !isGenerating) scheduleIdleCheck()
+    }
+
     // 生成任务（内聚在 session 中）
     private val _generationJob = MutableStateFlow<Job?>(null)
     private val activeJobs = mutableSetOf<Job>()
@@ -101,7 +140,7 @@ class ConversationSession(
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
-                messageQueue.state.value.messages.isNotEmpty()
+                messageQueue.state.value.messages.isNotEmpty() || agentRun.value?.status?.isWaiting == true
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null
@@ -160,6 +199,7 @@ class ConversationSession(
 
     @Synchronized
     fun cleanup() {
+        cancelAgentRun()
         _generationJob.value = null
         cancelJobs()
         idleCheckJob?.cancel()

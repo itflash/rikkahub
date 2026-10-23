@@ -31,6 +31,7 @@ import me.rerere.ai.ui.StreamChunkHandler
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
 import me.rerere.rikkahub.data.ai.agent.AgentPolicy
 import me.rerere.rikkahub.data.ai.agent.prepareAgentToolCalls
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
@@ -65,6 +66,11 @@ private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
+// An empty result must still mark the call as executed; otherwise a tool-only iteration
+// could repeat its side effects without consuming another model step.
+internal fun completedToolOutput(output: List<UIMessagePart>): List<UIMessagePart> =
+    output.ifEmpty { listOf(UIMessagePart.Text("Tool completed without output.")) }
+
 @Serializable
 sealed interface GenerationChunk {
     data class Messages(
@@ -91,6 +97,7 @@ class GenerationLoop(
         conversationSystemPrompt: String? = null,
         conversationId: Uuid? = null,
         workspaceCwd: String? = null,
+        agentRun: AgentRunTracker? = null,
     ): Flow<GenerationChunk> = flow {
         val policy = AgentPolicy(assistant.agentMode)
         val model = policy.model(model)
@@ -100,7 +107,9 @@ class GenerationLoop(
 
         var messages: List<UIMessage> = messages
 
-        for (stepIndex in 0 until maxSteps) {
+        val iterationLimit = if (agentRun != null) agentRun.snapshot.maxSteps + 1 else maxSteps
+        for (stepIndex in 0 until iterationLimit) {
+            currentCoroutineContext().ensureActive()
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
 
             // Unfinished calls must pass policy checks before another provider request.
@@ -112,6 +121,7 @@ class GenerationLoop(
 
             // Also handles a pending-only batch without sending it back to the provider.
             if (pendingTools.isEmpty()) {
+                agentRun?.beginStep()
                 generateInternal(
                     assistant = assistant,
                     settings = settings,
@@ -187,6 +197,9 @@ class GenerationLoop(
                 emit(GenerationChunk.Messages(messages))
             }
             if (checkedTools.any { it.approvalState is ToolApprovalState.Pending }) {
+                agentRun?.waitForUser(checkedTools.any {
+                    it.toolName == "ask_user" && it.approvalState is ToolApprovalState.Pending
+                })
                 Log.i(TAG, "generateText: waiting for tool approval")
                 break
             }
@@ -239,7 +252,9 @@ class GenerationLoop(
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
-                            val result = toolDef.execute(args)
+                            currentCoroutineContext().ensureActive()
+                            agentRun?.beginTool(toolDef.name)
+                            val result = completedToolOutput(toolDef.execute(args))
                             val hasShellAccess = tools.any { it.name == "workspace_shell" }
                             executedTools += tool.copy(
                                 output = maybeTruncateToolOutput(tool, result, hasShellAccess)

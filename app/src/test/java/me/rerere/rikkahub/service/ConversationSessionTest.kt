@@ -16,17 +16,77 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.ai.agent.AgentRunStatus
+import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.data.model.Conversation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.uuid.Uuid
 
 class ConversationSessionTest {
+    @Test
+    fun `waiting agent retains its session and approval resumes the same budget`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        val run = session.beginAgentRun(AgentMode.EXECUTE, 8, false)!!
+        run.beginStep()
+        run.waitForUser(false)
+        assertTrue(session.isInUse)
+        assertSame(run, session.beginAgentRun(AgentMode.PLAN, 128, true))
+        assertEquals(8, run.snapshot.maxSteps)
+        assertEquals(1, run.snapshot.steps)
+        assertEquals(AgentMode.PLAN, session.agentRun.value?.mode)
+        run.complete()
+        assertFalse(session.isInUse)
+        session.cleanup()
+    }
+
+    @Test
+    fun `late callbacks from an old task cannot overwrite successor progress`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        val old = session.beginAgentRun(AgentMode.PLAN, 8, false)!!
+        val next = session.beginAgentRun(AgentMode.EXECUTE, 32, false)!!
+        old.complete()
+        old.fail(IllegalStateException("late error"))
+        assertEquals(next.snapshot, session.agentRun.value)
+        assertEquals(AgentRunStatus.CANCELLED, old.snapshot.status)
+        session.cleanup()
+    }
+
+    @Test
+    fun `stop cancels a waiting task even without a generation job`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        session.beginAgentRun(AgentMode.EXECUTE, 8, false)!!.waitForUser(false)
+        assertNull(session.getJob())
+        session.cancelAgentRun()
+        assertEquals(AgentRunStatus.CANCELLED, session.agentRun.value?.status)
+        assertFalse(session.isInUse)
+        assertThrows(IllegalStateException::class.java) {
+            session.beginAgentRun(AgentMode.EXECUTE, 8, true)
+        }
+        session.cleanup()
+    }
+
+    @Test
+    fun `lost agent execution state never silently starts a new approval budget`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        assertThrows(IllegalStateException::class.java) {
+            session.beginAgentRun(AgentMode.EXECUTE, 8, true)
+        }
+        assertNull(session.beginAgentRun(AgentMode.CHAT, 8, true))
+        assertNull(session.agentRun.value)
+        session.cleanup()
+    }
+
     @Test
     fun `metadata edits survive reopening and final generation save`() = runBlocking {
         val id = Uuid.random()
