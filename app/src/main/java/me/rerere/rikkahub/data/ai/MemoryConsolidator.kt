@@ -23,6 +23,8 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.dao.MemoryConsolidationDAO
 import me.rerere.rikkahub.data.db.entity.MemoryConsolidationEntity
+import me.rerere.rikkahub.data.model.AgentMode
+import me.rerere.rikkahub.data.model.withConversation
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MemoryFile
@@ -133,7 +135,7 @@ class MemoryConsolidator(
 
         val batches = conversationIds
             .mapNotNull { conversationRepo.getConversationById(it) }
-            .filter { it.assistantId in assistantIds }
+            .filter { it.assistantId in assistantIds && settings.memoryIdOf(it) == memoryId }
             .sortedByDescending { it.updateAt }
             .mapNotNull { conversation ->
                 val pending = loadPendingTurns(conversation)
@@ -250,9 +252,12 @@ private fun List<Batch>.withinTranscriptBudget(): List<Batch> {
     }
 }
 
-/** 助手开了记忆时它读写的记忆库 */
-private fun Settings.memoryIdOf(conversation: Conversation): String? =
-    getAssistantById(conversation.assistantId)?.takeIf { it.enableMemory }?.memoryId
+/** Agent modes must not bypass read-only/approval policy through background memory writes. */
+internal fun Settings.memoryIdOf(conversation: Conversation): String? =
+    getAssistantById(conversation.assistantId)
+        ?.withConversation(conversation)
+        ?.takeIf { it.enableMemory && it.agentMode == AgentMode.CHAT }
+        ?.memoryId
 
 // 整理要调用工具；快速模型不支持时退回对话模型
 private fun Settings.consolidationModel(conversation: Conversation?, assistant: Assistant): Model? {

@@ -31,6 +31,8 @@ import me.rerere.ai.ui.StreamChunkHandler
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.agent.AgentPolicy
+import me.rerere.rikkahub.data.ai.agent.prepareAgentToolCalls
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
@@ -90,6 +92,9 @@ class GenerationLoop(
         conversationId: Uuid? = null,
         workspaceCwd: String? = null,
     ): Flow<GenerationChunk> = flow {
+        val policy = AgentPolicy(assistant.agentMode)
+        val model = policy.model(model)
+        val tools = policy.tools(tools)
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
 
@@ -98,14 +103,14 @@ class GenerationLoop(
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
 
-            // Check if we have tool calls ready to continue after user interaction.
+            // Unfinished calls must pass policy checks before another provider request.
             val pendingTools = messages.lastOrNull()?.getTools()?.filter {
-                it.canResumeExecution
+                !it.isExecuted
             } ?: emptyList()
 
             val toolsToProcess: List<UIMessagePart.Tool>
 
-            // Skip generation if we have approved/denied tool calls to handle
+            // Also handles a pending-only batch without sending it back to the provider.
             if (pendingTools.isEmpty()) {
                 generateInternal(
                     assistant = assistant,
@@ -163,63 +168,32 @@ class GenerationLoop(
                 )
                 emit(GenerationChunk.Messages(messages))
 
-                val toolCalls = messages.last().getTools().filter { !it.isExecuted }
-                if (toolCalls.isEmpty()) {
-                    // no tool calls, break
-                    break
-                }
-
-                // Check for tools that need approval
-                var hasPendingApproval = false
-                val updatedTools = toolCalls.map { tool ->
-                    val toolDef = tools.find { it.name == tool.toolName }
-                    when {
-                        // Tool needs approval and state is Auto -> set to Pending
-                        toolDef?.needsApproval(tool.inputAsJson()) == true &&
-                            tool.approvalState is ToolApprovalState.Auto -> {
-                            hasPendingApproval = true
-                            tool.copy(approvalState = ToolApprovalState.Pending)
-                        }
-                        // State is Pending -> keep waiting
-                        tool.approvalState is ToolApprovalState.Pending -> {
-                            hasPendingApproval = true
-                            tool
-                        }
-
-                        else -> tool
-                    }
-                }
-
-                // If any tools were updated to Pending, update the message and break
-                if (updatedTools != toolCalls) {
-                    val lastMessage = messages.last()
-                    val updatedParts = lastMessage.parts.map { part ->
-                        if (part is UIMessagePart.Tool) {
-                            updatedTools.find { it.toolCallId == part.toolCallId } ?: part
-                        } else {
-                            part
-                        }
-                    }
-                    messages = messages.dropLast(1) + lastMessage.copy(parts = updatedParts)
-                    emit(GenerationChunk.Messages(messages))
-                }
-
-                // If there are pending approvals, break and wait for user
-                if (hasPendingApproval) {
-                    Log.i(TAG, "generateText: waiting for tool approval")
-                    break
-                }
-
-                toolsToProcess = updatedTools
+                toolsToProcess = messages.last().getTools().filter { !it.isExecuted }
             } else {
-                // Resuming after user interaction - use the resumable tools directly.
-                Log.i(TAG, "generateText: resuming with ${pendingTools.size} resumable tools")
-                toolsToProcess = messages.last().getTools().filter { it.canResumeExecution }
+                // Recheck the whole unfinished batch, not just the approved call. A mode change
+                // can require approval for siblings that were previously auto-approved.
+                toolsToProcess = messages.last().getTools().filter { !it.isExecuted }
+            }
+
+            if (toolsToProcess.isEmpty()) break
+            val checkedTools = prepareAgentToolCalls(toolsToProcess, tools)
+            if (checkedTools != toolsToProcess) {
+                val lastMessage = messages.last()
+                messages = messages.dropLast(1) + lastMessage.copy(parts = lastMessage.parts.map { part ->
+                    if (part is UIMessagePart.Tool) {
+                        checkedTools.find { it.toolCallId == part.toolCallId } ?: part
+                    } else part
+                })
+                emit(GenerationChunk.Messages(messages))
+            }
+            if (checkedTools.any { it.approvalState is ToolApprovalState.Pending }) {
+                Log.i(TAG, "generateText: waiting for tool approval")
+                break
             }
 
             // Handle tools (execute approved tools, handle denied tools)
             val executedTools = arrayListOf<UIMessagePart.Tool>()
-            toolsToProcess.forEach { tool ->
+            checkedTools.forEach { tool ->
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
                         // Tool was denied by user
@@ -231,7 +205,7 @@ class GenerationLoop(
                                         buildJsonObject {
                                             put(
                                                 "error",
-                                                JsonPrimitive("Tool execution denied by user. Reason: ${reason.ifBlank { "No reason provided" }}")
+                                                JsonPrimitive("Tool execution denied. Reason: ${reason.ifBlank { "No reason provided" }}")
                                             )
                                         }
                                     )
@@ -353,6 +327,12 @@ class GenerationLoop(
                     append(effectiveSystemPrompt)
                 }
 
+                val agentPrompt = AgentPolicy(assistant.agentMode).systemPrompt
+                if (agentPrompt.isNotBlank()) {
+                    appendLine()
+                    appendLine(agentPrompt)
+                }
+
                 // 记忆
                 if (assistant.enableMemory) {
                     appendLine()
@@ -390,10 +370,10 @@ class GenerationLoop(
                 addAll(assistant.customHeaders)
                 addAll(model.customHeaders)
             },
-            customBody = buildList {
+            customBody = AgentPolicy(assistant.agentMode).customBody(buildList {
                 addAll(assistant.customBodies)
                 addAll(model.customBodies)
-            },
+            }),
             sessionId = (conversationId ?: Uuid.random()).toString(),
         )
         try {

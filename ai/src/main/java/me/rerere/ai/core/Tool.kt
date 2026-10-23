@@ -15,6 +15,8 @@ data class Tool(
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
     val needsApproval: (JsonElement) -> Boolean = { false },
+    // Only trusted, locally defined tools may opt in. Unknown/MCP tools default to non-read-only.
+    val readOnly: Boolean = false,
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
 

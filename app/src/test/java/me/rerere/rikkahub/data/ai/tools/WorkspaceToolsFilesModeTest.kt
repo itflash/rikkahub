@@ -13,6 +13,8 @@ import kotlinx.serialization.json.*
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.DiffMetadata
 import me.rerere.ai.ui.metadataAs
+import me.rerere.rikkahub.data.ai.agent.AgentPolicy
+import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
@@ -48,6 +50,12 @@ class WorkspaceToolsFilesModeTest {
             val repository = WorkspaceRepository(dao, manager, RootfsInstaller(manager), store)
             val workspace = repository.create("test")
             val tools = createWorkspaceTools(workspace.id, repository, shellAvailable = false).associateBy { it.name }
+            assertEquals(
+                setOf("workspace_read_file", "workspace_list_files"),
+                AgentPolicy(AgentMode.PLAN).tools(tools.values.toList()).map { it.name }.toSet(),
+            )
+            val executionTools = AgentPolicy(AgentMode.EXECUTE).tools(tools.values.toList())
+            assertTrue(executionTools.single { it.name == "workspace_write_file" }.needsApproval(buildJsonObject { }))
             assertFalse(tools.containsKey("workspace_shell"))
             assertFalse(tools.getValue("workspace_list_files").needsApproval(buildJsonObject { }))
             assertTrue(tools.getValue("workspace_delete_file").needsApproval(buildJsonObject { }))

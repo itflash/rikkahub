@@ -9,6 +9,7 @@ import me.rerere.ai.core.Tool
 
 internal fun buildAskUserTool(): Tool = Tool(
     name = "ask_user",
+    readOnly = true,
     description = """
         Ask the user one or more questions when you need clarification, additional information, or confirmation.
         Each question can optionally provide a list of suggested options for the user to choose from.

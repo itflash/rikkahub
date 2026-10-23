@@ -9,6 +9,7 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.skills.SkillManager
+import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -60,7 +61,11 @@ class ChatToolFactory(
             )
         }
 
-        val mcpTools = mcpManager.getAllAvailableTools(assistant)
+        // No external MCP tool is trusted as read-only yet. Do not let an unavailable
+        // or invalid server prevent a plan that can be completed with local read tools.
+        val mcpTools = if (assistant.agentMode == AgentMode.PLAN) emptyList() else {
+            mcpManager.getAllAvailableTools(assistant)
+        }
         val invalidNames = mcpTools
             .map { it.second }
             .distinct()

@@ -4,6 +4,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
+import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.model.AgentMode
+import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.ConversationConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -178,5 +183,31 @@ class MemoryConsolidatorTest {
             """.trimIndent(),
             transcript,
         )
+    }
+
+    @Test
+    fun `agent modes cannot enqueue background memory writes`() {
+        val assistant = Assistant(enableMemory = true)
+        val settings = Settings(assistants = listOf(assistant))
+        val conversation = Conversation(assistantId = assistant.id, messageNodes = emptyList())
+
+        assertEquals(assistant.id.toString(), settings.memoryIdOf(conversation))
+        listOf(AgentMode.PLAN, AgentMode.EXECUTE).forEach { mode ->
+            assertNull(settings.memoryIdOf(conversation.copy(config = ConversationConfig(agentMode = mode))))
+            assertNull(settings.copy(assistants = listOf(assistant.copy(agentMode = mode)))
+                .memoryIdOf(conversation))
+        }
+    }
+
+    @Test
+    fun `memory consolidation uses snapshotted mode instead of assistant default`() {
+        val assistant = Assistant(enableMemory = true, agentMode = AgentMode.PLAN)
+        val settings = Settings(assistants = listOf(assistant))
+        val conversation = Conversation(
+            assistantId = assistant.id,
+            messageNodes = emptyList(),
+            config = ConversationConfig(agentMode = AgentMode.CHAT),
+        )
+        assertEquals(assistant.id.toString(), settings.memoryIdOf(conversation))
     }
 }

@@ -68,6 +68,7 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.MessageNode
@@ -776,7 +777,9 @@ class ChatService(
             sessionManager.launchWithSession(conversationId) {
                 generateSuggestion(conversationId, finalConversation)
             }
-            if (assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(finalConversation)
+            if (assistant.enableMemory && assistant.agentMode == AgentMode.CHAT) {
+                memoryConsolidationScheduler.onTurnFinished(finalConversation)
+            }
         }
     }
 

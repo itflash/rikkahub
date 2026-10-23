@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.model
 
+import kotlinx.serialization.json.Json
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
@@ -219,5 +220,46 @@ class ConversationConfigTest {
         // 会话自己绑定过的保留，没绑定过的继承助手
         assertEquals(setOf(conversationInjection), bound.modeInjectionIds)
         assertEquals(setOf(lorebook), bound.lorebookIds)
+    }
+
+    @Test
+    fun `legacy configuration defaults to chat mode`() {
+        assertEquals(AgentMode.CHAT, Json.decodeFromString<ConversationConfig>("{}").agentMode)
+        assertEquals(AgentMode.CHAT, Json.decodeFromString<Assistant>("{}").agentMode)
+    }
+
+    @Test
+    fun `binding snapshots agent mode independently of subsequent assistant changes`() {
+        val planner = assistant.copy(agentMode = AgentMode.PLAN)
+        val bound = conversation(planner).bindConfig(settings(planner))
+        val changedSettings = settings(planner.copy(agentMode = AgentMode.EXECUTE))
+
+        assertEquals(AgentMode.PLAN, bound.config?.agentMode)
+        assertEquals(AgentMode.PLAN, changedSettings.getAssistantOf(bound).agentMode)
+    }
+
+    @Test
+    fun `chat page agent mode changes remain on the conversation`() {
+        val bound = conversation().bindConfig(settings())
+        val edited = settings().getAssistantOf(bound).copy(agentMode = AgentMode.EXECUTE)
+        val updated = bound.withAssistantUpdate(edited, settings())
+
+        assertEquals(AgentMode.EXECUTE, settings().getAssistantOf(updated).agentMode)
+        assertEquals(AgentMode.CHAT, edited.withoutConversationFields(bound, assistant).agentMode)
+    }
+
+    @Test
+    fun `unbound agent mode updates become assistant defaults`() {
+        val unbound = conversation()
+        val edited = assistant.copy(agentMode = AgentMode.PLAN)
+        assertEquals(AgentMode.PLAN, edited.withoutConversationFields(unbound, assistant).agentMode)
+    }
+
+    @Test
+    fun `agent mode survives configuration serialization`() {
+        AgentMode.entries.forEach { mode ->
+            val config = ConversationConfig(agentMode = mode)
+            assertEquals(config, Json.decodeFromString<ConversationConfig>(Json.encodeToString(config)))
+        }
     }
 }

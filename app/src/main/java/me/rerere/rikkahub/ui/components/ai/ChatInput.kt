@@ -297,6 +297,12 @@ fun ChatInput(
                                 modifier = Modifier,
                             )
 
+                            AgentModeButton(
+                                mode = assistant.agentMode,
+                                enabled = !loading,
+                                onModeChange = { onUpdateAssistant(assistant.copy(agentMode = it)) },
+                            )
+
                             // Search
                             val enableSearchMsg = stringResource(R.string.web_search_enabled)
                             val disableSearchMsg = stringResource(R.string.web_search_disabled)

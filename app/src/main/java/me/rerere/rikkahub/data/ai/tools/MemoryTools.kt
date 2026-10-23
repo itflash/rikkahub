@@ -48,6 +48,7 @@ fun buildMemoryTools(
 ): List<Tool> = listOf(
     Tool(
         name = MemoryToolNames.READ,
+        readOnly = true,
         description = "Read one or more memory files. Returns each file's content and version.",
         parameters = {
             InputSchema.Obj(
@@ -179,6 +180,7 @@ fun buildMemoryTools(
     ),
     Tool(
         name = MemoryToolNames.LIST,
+        readOnly = true,
         description = "List memory files (path, size, update time), optionally filtered by path prefix.",
         parameters = {
             InputSchema.Obj(

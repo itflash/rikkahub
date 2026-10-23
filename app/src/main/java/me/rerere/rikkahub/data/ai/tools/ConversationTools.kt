@@ -30,6 +30,7 @@ fun createConversationTools(
 ): List<Tool> = listOf(
     Tool(
         name = "recent_chats",
+        readOnly = true,
         description = """
             List the user's recent conversations with you to understand their preferences and ongoing topics.
             Returns conversation titles and the date of last activity, ordered by pinned first then most recently updated.
@@ -72,6 +73,7 @@ fun createConversationTools(
 
 private fun conversationSearchTool(search: suspend (query: String) -> List<MessageSearchResult>) = Tool(
     name = "conversation_search",
+    readOnly = true,
     description = """
         Full-text search across the user's past conversations to recall specific information they mentioned before.
         Use focused keywords. Run multiple searches with different keywords if needed.
@@ -129,6 +131,7 @@ fun createMemoryConversationTools(
     conversationSearchTool { query -> conversationRepo.searchMessagesOfAssistants(query, assistantIds) },
     Tool(
         name = "conversation_read",
+        readOnly = true,
         description = """
             Read the messages of one conversation in full, by position.
             Use it when a message you were given was cut off, or a search snippet needs its surrounding context.

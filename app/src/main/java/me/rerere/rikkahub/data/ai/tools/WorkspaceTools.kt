@@ -79,6 +79,7 @@ private fun createReadFileTool(
     access: WorkspaceFileAccess,
 ) = Tool(
     name = "workspace_read_file",
+    readOnly = true,
     description = """
         Read a file in the bound workspace. Paths must be absolute; without Linux only /workspace is available.
         Use /workspace for the workspace files area.
@@ -510,6 +511,7 @@ private class FilesAreaFileAccess(val id: String, val repository: WorkspaceRepos
 
 private fun createListFilesTool(id: String, approval: (String) -> Boolean, repository: WorkspaceRepository) = Tool(
     name = "workspace_list_files",
+    readOnly = true,
     description = "List files under /workspace, skipping hidden files. Returns at most 500 entries.",
     parameters = {
         InputSchema.Obj(properties = buildJsonObject {
