@@ -34,5 +34,21 @@
 -keep class com.fasterxml.jackson.** { *; }
 -keep class com.auth0.jwt.** { *; }
 
-# Keep JlatexMath
--keep class org.scilab.forge.jlatexmath.** { *; }
+# JLatexMath looks up \newcommand macros and the Greek/Cyrillic alphabet registrations by class name.
+-keep class org.scilab.forge.jlatexmath.NewCommandMacro {
+    <init>();
+    java.lang.String executeMacro(org.scilab.forge.jlatexmath.TeXParser, java.lang.String[]);
+}
+-keep class org.scilab.forge.jlatexmath.cyrillic.CyrillicRegistration { <init>(); }
+-keep class org.scilab.forge.jlatexmath.greek.GreekRegistration { <init>(); }
+
+# JSch loads its cipher, key exchange and compression implementations by class name from its config.
+-keep class com.jcraft.jsch.** { *; }
+
+# JSch's optional integrations (ssh-agent via JNA / junixsocket, logging bridges, GSSAPI) are unused on Android.
+-dontwarn com.sun.jna.**
+-dontwarn org.newsclub.net.unix.**
+-dontwarn org.slf4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.ietf.jgss.**
+>>>>>>> f267e847 (build: JLatexMath 改为只 keep 反射用到的类，不再整库保留)
