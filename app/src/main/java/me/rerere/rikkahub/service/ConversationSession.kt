@@ -113,7 +113,15 @@ class ConversationSession(
     }
 
     @Synchronized
-    fun beginAgentRun(mode: AgentMode, maxSteps: Int, resume: Boolean): AgentRunTracker? {
+    fun beginAgentRun(
+        mode: AgentMode,
+        maxSteps: Int,
+        resume: Boolean,
+        maxTokens: Int = 200_000,
+        maxActiveMillis: Long = 15 * 60_000L,
+        autoCompact: Boolean = true,
+        subtasksEnabled: Boolean = true,
+    ): AgentRunTracker? {
         if (mode == AgentMode.CHAT) {
             agentTracker?.fail(CancellationException("Switched to chat mode"))
             agentTracker = null
@@ -128,10 +136,11 @@ class ConversationSession(
             return tracker
         }
         agentTracker?.fail(CancellationException("Replaced by a new task"))
-        val tracker = AgentRunTracker(mode, maxSteps) { update ->
+        val tracker = AgentRunTracker(mode, maxSteps, onUpdate = { update ->
             // A cancelled predecessor must not overwrite the next task's progress.
             _agentRun.update { current -> if (current?.id == update.id) update else current }
-        }
+        }, maxTokens = maxTokens, maxActiveMillis = maxActiveMillis,
+            autoCompact = autoCompact, subtasksEnabled = subtasksEnabled)
         agentTracker = tracker
         _agentRun.value = tracker.snapshot
         return tracker

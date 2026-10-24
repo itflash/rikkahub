@@ -50,6 +50,24 @@ class ConversationConfigTest {
     )
 
     @Test
+    fun `resource budget and agent capabilities are isolated per conversation`() {
+        val configured = assistant.copy(agentMaxTokens = 50_000, agentMaxMinutes = 5,
+            agentAutoCompact = false, agentSubtasks = false)
+        val bound = conversation(configured).bindConfig(settings(configured))
+        val changed = settings(configured.copy(agentMaxTokens = 1_000_000, agentMaxMinutes = 60,
+            agentAutoCompact = true, agentSubtasks = true))
+        assertEquals(50_000, changed.getAssistantOf(bound).agentMaxTokens)
+        assertEquals(5, changed.getAssistantOf(bound).agentMaxMinutes)
+        assertFalse(changed.getAssistantOf(bound).agentAutoCompact)
+        assertFalse(changed.getAssistantOf(bound).agentSubtasks)
+        val edited = changed.getAssistantOf(bound).copy(agentMaxTokens = 200_000, agentMaxMinutes = 15,
+            agentAutoCompact = true, agentSubtasks = true)
+        assertEquals(edited.agentMaxTokens, bound.withAssistantUpdate(edited, changed).config?.agentMaxTokens)
+        assertEquals(configured.agentMaxTokens, edited.withoutConversationFields(bound, configured).agentMaxTokens)
+        assertEquals(200_000, Json.decodeFromString<ConversationConfig>("{}").agentMaxTokens)
+    }
+
+    @Test
     fun `agent budget is snapshotted and edited only on the conversation`() {
         val configured = assistant.copy(agentMaxSteps = 8)
         val bound = conversation(configured).bindConfig(settings(configured))

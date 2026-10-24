@@ -48,6 +48,10 @@ data class Assistant(
     val lorebookIds: Set<Uuid> = emptySet(),            // 关联的 Lorebook ID
     val agentMode: AgentMode = AgentMode.CHAT,
     val agentMaxSteps: Int = 32,
+    val agentMaxTokens: Int = 200_000,
+    val agentMaxMinutes: Int = 15,
+    val agentAutoCompact: Boolean = true,
+    val agentSubtasks: Boolean = true,
     val enabledSkills: Set<String> = emptySet(),        // 启用的 skill 名称列表
     val enableTimeReminder: Boolean = false,            // 时间间隔提醒注入
     val timeReminderIntervalMinutes: Int = 60,          // 时间提醒间隔（分钟，至少 1 分钟）

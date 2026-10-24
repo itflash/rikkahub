@@ -699,7 +699,9 @@ class ChatService(
                     error(reason)
                 }
             }
-            agentRun = session.beginAgentRun(assistant.agentMode, assistant.agentMaxSteps, resumeAgentRun)
+            agentRun = session.beginAgentRun(assistant.agentMode, assistant.agentMaxSteps, resumeAgentRun,
+                assistant.agentMaxTokens, assistant.agentMaxMinutes.coerceIn(1, 120) * 60_000L,
+                autoCompact = assistant.agentAutoCompact, subtasksEnabled = assistant.agentSubtasks)
             if (assistant.agentMode == AgentMode.CHAT) conversationRepo.clearAgentCheckpoint(conversationId)
 
 

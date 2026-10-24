@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
@@ -39,8 +40,8 @@ class AgentCheckpointRepositoryTest {
     private lateinit var scope: AppScope
     private lateinit var conversation: Conversation
     private lateinit var run: AgentRunTracker
-    private val model = Model(modelId = "checkpoint-test", abilities = listOf(ModelAbility.TOOL))
-    private val setting = ProviderSetting.OpenAI(models = listOf(model))
+    private var model = Model(modelId = "checkpoint-test", abilities = listOf(ModelAbility.TOOL))
+    private val setting get() = ProviderSetting.OpenAI(models = listOf(model))
     private val assistant = Assistant(agentMode = AgentMode.EXECUTE, streamOutput = false)
 
     @Before fun setUp() = runBlocking {
@@ -152,11 +153,16 @@ class AgentCheckpointRepositoryTest {
     private class FakeProvider(private val replies: MutableList<UIMessage>) : Provider<ProviderSetting.OpenAI> {
         var requests = 0
         val requestMessages = mutableListOf<List<UIMessage>>()
+        val requestParams = mutableListOf<TextGenerationParams>()
+        var requestDelayMillis = 0L
+        var usageByRequest: List<me.rerere.ai.core.TokenUsage?> = emptyList()
         override suspend fun listModels(providerSetting: ProviderSetting.OpenAI) = emptyList<Model>()
         override suspend fun generateText(providerSetting: ProviderSetting.OpenAI, messages: List<UIMessage>, params: TextGenerationParams): TextGenerationResult {
             requests++
             requestMessages += messages
-            return TextGenerationResult("result-$requests", params.model.modelId, replies.removeAt(0))
+            requestParams += params
+            if (requestDelayMillis > 0) delay(requestDelayMillis)
+            return TextGenerationResult("result-$requests", params.model.modelId, replies.removeAt(0), usage = usageByRequest.getOrNull(requests - 1))
         }
         override suspend fun streamText(providerSetting: ProviderSetting.OpenAI, messages: List<UIMessage>, params: TextGenerationParams): Flow<StreamChunk> = error("not used")
     }
@@ -208,7 +214,9 @@ class AgentCheckpointRepositoryTest {
                 if (phase == AgentCheckpointPhase.TOOL_IN_FLIGHT) throw IOException("disk full")
                 persist(phase)
             }
-        } catch (_: IOException) { failed = true }
+        } catch (error: Exception) {
+            failed = error is IOException || error.cause is IOException
+        }
         assertTrue(failed)
         assertEquals(0, effects)
         assertEquals(1, provider.requests)
@@ -264,6 +272,95 @@ class AgentCheckpointRepositoryTest {
         val loaded = repository.getConversationById(conversation.id)!!
         assertEquals(AgentRunStatus.INTERRUPTED,
             restoreAgentCheckpoint(repository.getAgentCheckpoint(conversation.id), loaded)?.status)
+    }
+
+    @Test fun tokenPreflightRefusesRequestBeforeProviderOrToolWork() = runBlocking {
+        run = AgentRunTracker(AgentMode.EXECUTE, 8, maxTokens = 1024)
+        val provider = FakeProvider(mutableListOf(reply(UIMessagePart.Text("should not happen"))))
+        try { generate(loop(provider), emptyList()); fail("Expected insufficient token budget") }
+        catch (_: AgentResourceBudgetExceeded) { }
+        assertEquals(0, provider.requests)
+        assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, run.snapshot.status)
+    }
+
+    @Test fun timeBudgetCancelsSlowRequestAndRetainsSpentReservation() = runBlocking {
+        run = AgentRunTracker(AgentMode.EXECUTE, 8, maxActiveMillis = 1000)
+        repository.clearAgentCheckpoint(conversation.id)
+        val provider = FakeProvider(mutableListOf(reply(UIMessagePart.Text("too late")))).apply { requestDelayMillis = 5000 }
+        try { generate(loop(provider), emptyList()); fail("Expected timeout") }
+        catch (_: AgentResourceBudgetExceeded) { }
+        assertEquals(1, provider.requests)
+        assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, run.snapshot.status)
+        assertTrue(run.snapshot.activeMillis >= 900)
+        assertTrue(run.snapshot.usedTokens > 0)
+    }
+
+    @Test fun autoCompactionKeepsHistoryAndPersistsSummaryWithSharedCosts() = runBlocking {
+        model = model.copy(contextLength = 12_000)
+        conversation = conversation.copy(messageNodes = (0..9).map {
+            UIMessage.user("history $it " + "x".repeat(1000)).toMessageNode()
+        })
+        val originalIds = conversation.currentMessages.map { it.id }
+        val provider = FakeProvider(mutableListOf(reply(UIMessagePart.Text("Keep goal and completed file changes")),
+            reply(UIMessagePart.Text("Final response"))))
+        generate(loop(provider), emptyList())
+        assertEquals(2, provider.requests)
+        assertTrue(provider.requestParams.first().tools.isEmpty())
+        assertEquals(1, run.snapshot.compactions)
+        assertEquals(6, run.snapshot.summarizedMessageCount)
+        assertEquals(2, run.snapshot.steps)
+        assertEquals(originalIds, conversation.currentMessages.take(10).map { it.id })
+        assertTrue(provider.requestMessages.last().any { it.toText().contains("Keep goal") })
+        assertFalse(provider.requestMessages.last().any { it.toText().contains("history 0 ") })
+        val loaded = repository.getConversationById(conversation.id)!!
+        val restored = restoreAgentCheckpoint(repository.getAgentCheckpoint(conversation.id), loaded)!!
+        assertEquals(run.snapshot.contextSummary, restored.contextSummary)
+        assertEquals(run.snapshot.usedTokens, restored.usedTokens)
+    }
+
+    @Test fun singleAssistantMessageWithManyToolResultsCanBeAutoCompacted() = runBlocking {
+        model = model.copy(contextLength = 12_000)
+        val calls = (0..2).map { UIMessagePart.Tool("read-$it", "read", "{}",
+            output = listOf(UIMessagePart.Text("evidence-$it " + "x".repeat(3000)))) }
+        conversation = conversation.copy(messageNodes = conversation.messageNodes + reply(*calls.toTypedArray()).toMessageNode())
+        val provider = FakeProvider(mutableListOf(reply(UIMessagePart.Text("read-0 and read-1 found earlier evidence")),
+            reply(UIMessagePart.Text("Final findings"))))
+        generate(loop(provider), emptyList())
+        assertEquals(2, provider.requests)
+        assertEquals(1, run.snapshot.compactions)
+        assertEquals(setOf("read-0", "read-1"), run.snapshot.summarizedToolCallIds)
+        assertEquals(calls, conversation.currentMessages.last().getTools())
+        assertTrue(provider.requestMessages.last().flatMap { it.getTools() }.all { it.isExecuted })
+    }
+
+    @Test fun missingUsageOnLaterRequestDoesNotReuseEarlierMessageUsage() = runBlocking {
+        val read = Tool("read", "read", readOnly = true, execute = { listOf(UIMessagePart.Text("evidence")) })
+        val provider = FakeProvider(mutableListOf(reply(toolCall("read")), reply(UIMessagePart.Text("final")))).apply {
+            usageByRequest = listOf(me.rerere.ai.core.TokenUsage(promptTokens = 80, completionTokens = 20), null)
+        }
+        generate(loop(provider), listOf(read))
+        assertEquals(2, provider.requests)
+        assertTrue(run.snapshot.usageEstimated)
+        assertTrue(run.snapshot.usedTokens > 200)
+    }
+
+    @Test fun childInvestigationRunsInsideParentBudgetsWithoutLeakingItsTranscript() = runBlocking {
+        var reads = 0
+        val read = Tool("read", "read", readOnly = true, execute = { reads++; listOf(UIMessagePart.Text("file evidence")) })
+        val delegate = UIMessagePart.Tool("child", "delegate_research", """{"task":"Read the file and review it"}""")
+        val provider = FakeProvider(mutableListOf(reply(delegate), reply(toolCall("read")),
+            reply(UIMessagePart.Text("child-only finding")), reply(UIMessagePart.Text("Parent conclusion"))))
+        generate(loop(provider), listOf(read))
+        assertEquals(4, provider.requests)
+        assertEquals(4, run.snapshot.steps)
+        assertEquals(1, reads)
+        assertEquals("completed", run.snapshot.subtasks.single().status)
+        assertTrue(provider.requestParams[1].tools.none { it.name == "delegate_research" })
+        assertTrue(provider.requestParams[1].model.tools.isEmpty())
+        assertFalse(conversation.currentMessages.any { it.toText() == "child-only finding" })
+        assertTrue(conversation.currentMessages.flatMap { it.getTools() }.any {
+            it.toolName == "delegate_research" && it.isExecuted
+        })
     }
 
     @Test fun committedFirstResultIsNotExecutedAgainAfterRestartMidBatch() = runBlocking {

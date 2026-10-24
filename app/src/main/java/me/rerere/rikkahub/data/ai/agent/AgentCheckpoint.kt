@@ -27,7 +27,19 @@ data class AgentCheckpoint(
     val fingerprint: String,
 ) {
     fun recover(conversation: Conversation): AgentRun {
-        if (version != 1 || run.steps !in 0..run.maxSteps || run.maxSteps !in 1..256 || run.toolCalls < 0) {
+        val run = run.copy(
+            usedTokens = run.usedTokens + run.reservedTokens.coerceAtLeast(0), reservedTokens = 0,
+            usageEstimated = run.usageEstimated || run.reservedTokens > 0,
+            activeMillis = run.activeMillis + (run.activeStartedAtMillis?.let {
+                (System.currentTimeMillis() - it).coerceIn(0, run.maxActiveMillis.coerceAtLeast(0))
+            } ?: 0), activeStartedAtMillis = null,
+            subtasks = run.subtasks.map { if (it.status == "running") it.copy(status = "interrupted") else it },
+        )
+        if (version != 1 || run.steps !in 0..run.maxSteps || run.maxSteps !in 1..256 || run.toolCalls < 0 || run.usedTokens < 0 || run.maxTokens !in 1024..2_000_000 ||
+            run.maxActiveMillis !in 1_000..(120 * 60_000L) || run.activeMillis < 0 ||
+            run.summarizedMessageCount !in 0..conversation.currentMessages.size ||
+            (run.summarizedMessageCount > 0 && run.contextSummary == null) ||
+            (run.summarizedToolCallIds.isNotEmpty() && run.toolResultSummary == null)) {
             return run.interrupted("检查点版本或计数无效，不能安全恢复。请重新发起任务。")
         }
         val count = run.contextMessageCount ?: conversation.currentMessages.size
@@ -42,6 +54,10 @@ data class AgentCheckpoint(
             return run.interrupted("工具执行期间发生中断，结果无法确认。为避免重复副作用，不会重放；请先核对工作区或外部结果。")
         }
         if (phase == AgentCheckpointPhase.FINISHED) return run.copy(status = AgentRunStatus.COMPLETED)
+        if (run.usedTokens >= run.maxTokens) return run.copy(status = AgentRunStatus.BUDGET_EXHAUSTED,
+            detail = "Token 预算已用尽，任务已停止。")
+        if (run.activeMillis >= run.maxActiveMillis) return run.copy(status = AgentRunStatus.BUDGET_EXHAUSTED,
+            detail = "执行时间预算已用尽，任务已停止。")
         val pending = conversation.currentMessages.take(count).lastOrNull()?.getTools().orEmpty().filter { it.isPending }
         val status = when {
             phase != AgentCheckpointPhase.MODEL_REQUEST && pending.isNotEmpty() ->
@@ -69,7 +85,7 @@ fun agentCheckpointFingerprint(conversation: Conversation): String {
     val content = buildJsonObject {
         put("id", conversation.id.toString())
         put("assistant", conversation.assistantId.toString())
-        put("config", JsonInstant.encodeToJsonElement(conversation.config?.copy(agentMode = AgentMode.CHAT, agentMaxSteps = 32)))
+        put("config", JsonInstant.encodeToJsonElement(conversation.config?.copy(agentMode = AgentMode.CHAT, agentMaxSteps = 32, agentMaxTokens = 200_000, agentMaxMinutes = 15, agentAutoCompact = true, agentSubtasks = true)))
         put("cwd", conversation.workspaceCwd)
         put("system", conversation.customSystemPrompt)
         put("modes", JsonInstant.encodeToJsonElement(conversation.modeInjectionIds.sortedBy { it.toString() }))

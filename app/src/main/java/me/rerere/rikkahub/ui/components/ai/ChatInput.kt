@@ -298,11 +298,9 @@ fun ChatInput(
                             )
 
                             AgentModeButton(
-                                mode = assistant.agentMode,
-                                maxSteps = assistant.agentMaxSteps,
-                                onMaxStepsChange = { onUpdateAssistant(assistant.copy(agentMaxSteps = it)) },
+                                assistant = assistant,
                                 enabled = !loading,
-                                onModeChange = { onUpdateAssistant(assistant.copy(agentMode = it)) },
+                                onUpdate = onUpdateAssistant,
                             )
 
                             // Search

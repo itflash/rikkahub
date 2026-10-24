@@ -28,6 +28,10 @@ data class ConversationConfig(
     val enabledSkills: Set<String> = emptySet(),
     val agentMode: AgentMode = AgentMode.CHAT,
     val agentMaxSteps: Int = 32,
+    val agentMaxTokens: Int = 200_000,
+    val agentMaxMinutes: Int = 15,
+    val agentAutoCompact: Boolean = true,
+    val agentSubtasks: Boolean = true,
 )
 
 // 内置搜索是模型的开关，不在助手上，由调用方另行填入
@@ -40,6 +44,10 @@ private fun Assistant.toConversationConfig() = ConversationConfig(
     enabledSkills = enabledSkills,
     agentMode = agentMode,
     agentMaxSteps = agentMaxSteps,
+    agentSubtasks = agentSubtasks,
+    agentAutoCompact = agentAutoCompact,
+    agentMaxMinutes = agentMaxMinutes,
+    agentMaxTokens = agentMaxTokens,
 )
 
 private fun Assistant.withConversationConfig(config: ConversationConfig) = copy(
@@ -51,6 +59,10 @@ private fun Assistant.withConversationConfig(config: ConversationConfig) = copy(
     enabledSkills = config.enabledSkills,
     agentMode = config.agentMode,
     agentMaxSteps = config.agentMaxSteps,
+    agentSubtasks = config.agentSubtasks,
+    agentAutoCompact = config.agentAutoCompact,
+    agentMaxMinutes = config.agentMaxMinutes,
+    agentMaxTokens = config.agentMaxTokens,
 )
 
 /** 会话视角下的助手：会话开始后，会话持有的字段覆盖助手自身的值。 */

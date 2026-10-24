@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Switch
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -24,17 +25,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 
 @Composable
 fun AgentModeButton(
-    mode: AgentMode,
+    assistant: Assistant,
     enabled: Boolean,
-    onModeChange: (AgentMode) -> Unit,
-    maxSteps: Int,
-    onMaxStepsChange: (Int) -> Unit,
+    onUpdate: (Assistant) -> Unit,
 ) {
+    val mode = assistant.agentMode
+    val maxSteps = assistant.agentMaxSteps
     var showPicker by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) showPicker = false }
     TextButton(onClick = { showPicker = true }, enabled = enabled) {
@@ -67,7 +69,7 @@ fun AgentModeButton(
                         formItem(
                             headlineContent = { Text("任务步数上限：${maxSteps.coerceIn(1, 256)}") },
                             supportingContent = {
-                                Text("每轮模型生成计一步，网络重试仍算同一步；审批续跑累计计算。修改仅对下一次新任务生效。")
+                                Text("主任务、压缩和子任务共享预算；审批等待不计执行时间。预算与能力开关仅对下一次新任务生效。")
                             },
                         ) {
                             Row(
@@ -77,7 +79,7 @@ fun AgentModeButton(
                                 listOf(8, 32, 64, 128).forEach { steps ->
                                     FilterChip(
                                         selected = maxSteps == steps,
-                                        onClick = { onMaxStepsChange(steps) },
+                                        onClick = { onUpdate(assistant.copy(agentMaxSteps = steps)) },
                                         label = { Text("$steps 步") },
                                     )
                                 }
@@ -85,11 +87,42 @@ fun AgentModeButton(
                         }
                     }
                 }
+                if (mode != AgentMode.CHAT) {
+                    CardGroup {
+                        formItem(headlineContent = { Text("Token 预算：${assistant.agentMaxTokens}") },
+                            supportingContent = { Text("按提供商用量累计；缺失用量时保守估算，不是账单金额或绝对费用上限。") }) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(50_000, 200_000, 1_000_000).forEach { tokens ->
+                                    FilterChip(selected = assistant.agentMaxTokens == tokens,
+                                        onClick = { onUpdate(assistant.copy(agentMaxTokens = tokens)) },
+                                        label = { Text("${tokens / 1000}k") })
+                                }
+                            }
+                        }
+                        formItem(headlineContent = { Text("执行时间：${assistant.agentMaxMinutes} 分钟") }) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(5, 15, 30, 60).forEach { minutes ->
+                                    FilterChip(selected = assistant.agentMaxMinutes == minutes,
+                                        onClick = { onUpdate(assistant.copy(agentMaxMinutes = minutes)) },
+                                        label = { Text("$minutes 分钟") })
+                                }
+                            }
+                        }
+                        item(headlineContent = { Text("自动压缩上下文") },
+                            supportingContent = { Text("接近上下文窗口时压缩较早内容，保留原始聊天记录；压缩也消耗共享预算。") },
+                            trailingContent = { Switch(checked = assistant.agentAutoCompact,
+                                onCheckedChange = { onUpdate(assistant.copy(agentAutoCompact = it)) }) })
+                        item(headlineContent = { Text("只读子 Agent") },
+                            supportingContent = { Text("允许委派独立的调查或审查任务；串行执行，不能写文件、运行 Shell、调用未知工具或再委派。") },
+                            trailingContent = { Switch(checked = assistant.agentSubtasks,
+                                onCheckedChange = { onUpdate(assistant.copy(agentSubtasks = it)) }) })
+                    }
+                }
                 CardGroup {
                     AgentMode.entries.forEach { option ->
                         item(
                             onClick = {
-                                onModeChange(option)
+                                onUpdate(assistant.copy(agentMode = option))
                                 showPicker = false
                             },
                             headlineContent = { Text(option.label) },

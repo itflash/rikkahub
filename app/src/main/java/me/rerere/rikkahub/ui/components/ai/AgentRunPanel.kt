@@ -10,6 +10,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -19,6 +25,15 @@ import me.rerere.rikkahub.data.model.AgentMode
 
 @Composable
 fun AgentRunPanel(run: AgentRun, onStop: () -> Unit, onResume: () -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(run.activeStartedAtMillis) {
+        while (run.activeStartedAtMillis != null) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val activeMillis = run.activeMillis + (run.activeStartedAtMillis?.let { (now - it).coerceAtLeast(0) } ?: 0)
+
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -39,6 +54,25 @@ fun AgentRunPanel(run: AgentRun, onStop: () -> Unit, onResume: () -> Unit) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    "Token ${run.usedTokens}/${run.maxTokens}${if (run.usageEstimated) "（含估算）" else ""} · 压缩 ${run.compactions} 次",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("累计执行 ${activeMillis / 1000} 秒 / ${run.maxActiveMillis / 60_000} 分钟",
+                    style = MaterialTheme.typography.labelSmall)
+                run.subtasks.takeLast(2).forEach { task ->
+                    val status = when (task.status) {
+                        "running" -> "运行中"
+                        "completed" -> "已完成"
+                        "limit_reached" -> "达到子任务上限"
+                        "cancelled" -> "已取消"
+                        "interrupted" -> "已中断"
+                        else -> "失败"
+                    }
+                    Text("子任务 · $status · ${task.steps}/8 步：${task.task}",
+                        style = MaterialTheme.typography.labelSmall, maxLines = 2)
+                }
                 run.currentTool?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (run.status == AgentRunStatus.BUDGET_EXHAUSTED) {
                     Text("已保留现有结果。检查后可重新发起任务。", style = MaterialTheme.typography.bodySmall)
