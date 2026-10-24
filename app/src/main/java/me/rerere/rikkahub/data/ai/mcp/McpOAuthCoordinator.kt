@@ -25,8 +25,7 @@ internal const val MCP_OAUTH_CALLBACK_PORT = 52_134
 internal const val MCP_OAUTH_CALLBACK_PATH = "/oauth/callback"
 internal const val MCP_OAUTH_REDIRECT_URI =
     "http://localhost:$MCP_OAUTH_CALLBACK_PORT$MCP_OAUTH_CALLBACK_PATH"
-// 托管在 GitHub Pages 上的 Client ID Metadata Document，其 redirect_uris 必须与 MCP_OAUTH_REDIRECT_URI 一致
-internal const val MCP_OAUTH_CLIENT_METADATA_URL = "https://itflash.github.io/rikkahub/oauth/client.json"
+// Fork builds require their own registered client identity; never guess a hosted metadata URL.
 private val OAUTH_CALLBACK_TIMEOUT = 5.minutes
 
 /**
@@ -167,16 +166,9 @@ internal class McpOAuthCoordinator(
             val canReuseClient = existing?.redirectUri == redirectUri && !existing.clientId.isNullOrBlank()
             var clientId = existing?.clientId.takeIf { canReuseClient }
             var clientSecret = existing?.clientSecret.takeIf { canReuseClient }
-            if (clientId.isNullOrBlank() && metadata.registrationEndpoint == null &&
-                metadata.clientIdMetadataDocumentSupported
-            ) {
-                // 无动态注册端点时，使用 Client ID Metadata Document（URL 即 client_id）
-                clientId = MCP_OAUTH_CLIENT_METADATA_URL
-                clientSecret = null
-            }
             if (clientId.isNullOrBlank()) {
                 val registrationEndpoint = metadata.registrationEndpoint
-                    ?: error("授权服务器不支持动态注册，且未预配置 client_id")
+                    ?: error("授权服务器不支持动态注册，请为本分支配置自己的 client_id；不会使用上游客户端身份")
                 val registration = oauthClient.registerClient(
                     registrationEndpoint = registrationEndpoint,
                     request = OAuthHttpClient.ClientRegistrationRequest(

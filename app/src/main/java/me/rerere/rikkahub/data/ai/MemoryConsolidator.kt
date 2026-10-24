@@ -69,8 +69,7 @@ class MemoryConsolidator(
 
     override suspend fun pendingOf(conversation: Conversation): PendingMemoryConversation? =
         withContext(Dispatchers.IO) {
-            val assistant = settingsStore.awaitLoaded().getAssistantById(conversation.assistantId)
-                ?.takeIf { it.enableMemory } ?: return@withContext null
+            val assistant = settingsStore.awaitLoaded().memoryAssistantOf(conversation) ?: return@withContext null
             val pending = loadPendingTurns(conversation)
             if (pending.turns.isEmpty()) {
                 null
@@ -267,11 +266,13 @@ private fun List<Batch>.withinTranscriptBudget(): List<Batch> {
 }
 
 /** Agent modes must not bypass read-only/approval policy through background memory writes. */
-internal fun Settings.memoryIdOf(conversation: Conversation): String? =
+internal fun Settings.memoryAssistantOf(conversation: Conversation): Assistant? =
     getAssistantById(conversation.assistantId)
         ?.withConversation(conversation)
         ?.takeIf { it.enableMemory && it.agentMode == AgentMode.CHAT }
-        ?.memoryId
+
+internal fun Settings.memoryIdOf(conversation: Conversation): String? = memoryAssistantOf(conversation)?.memoryId
+
 // 整理要调用工具；快速模型不支持时退回对话模型
 private fun Settings.consolidationModel(conversation: Conversation?, assistant: Assistant): Model? {
     val fastModel = findModelById(fastModelId)?.takeIf { ModelAbility.TOOL in it.abilities }

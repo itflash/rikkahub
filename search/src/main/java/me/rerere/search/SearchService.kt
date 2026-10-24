@@ -69,6 +69,7 @@ interface SearchService<T : SearchServiceOptions> {
                 is SearchServiceOptions.TinyfishOptions -> TinyfishSearchService
                 is SearchServiceOptions.SerperOptions -> SerperSearchService
                 is SearchServiceOptions.DeepSeekOptions -> DeepSeekSearchService
+                is SearchServiceOptions.RikkaHubOptions -> DisabledLegacyRikkaHubService
                 is SearchServiceOptions.CustomJsOptions -> CustomJsSearchService
             } as SearchService<T>
         }
@@ -151,6 +152,17 @@ sealed class SearchServiceOptions {
 
     open val displayName: String
         get() = TYPES[this::class] ?: "Unknown"
+
+    /** Decode old settings without discarding other providers or silently using an upstream endpoint. */
+    @Serializable
+    @SerialName("rikkahub")
+    data class RikkaHubOptions(
+        override val id: Uuid = Uuid.random(),
+        val apiKey: String = "",
+        val depth: String = "standard",
+    ) : SearchServiceOptions() {
+        override val displayName: String get() = "RikkaHub (legacy, unavailable)"
+    }
 
     companion object {
         val DEFAULT = BingLocalOptions()

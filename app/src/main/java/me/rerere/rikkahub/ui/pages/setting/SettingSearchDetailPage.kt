@@ -220,6 +220,9 @@ private fun SearchServiceOptionsEditor(
         is SearchServiceOptions.SerperOptions -> {
             SerperOptions(options) { onUpdateOptions(it) }
         }
+        is SearchServiceOptions.RikkaHubOptions -> {
+            Text("原版搜索服务在本分支中不可用，请切换到其他搜索服务。原有设置保留，不会向上游发送请求。")
+        }
         is SearchServiceOptions.DeepSeekOptions -> {
             DeepSeekOptions(options) { onUpdateOptions(it) }
         }

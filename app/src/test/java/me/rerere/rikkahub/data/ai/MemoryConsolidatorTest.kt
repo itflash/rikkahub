@@ -42,6 +42,19 @@ class MemoryConsolidatorTest {
         pendingMemoryTurns(messages, updatedAt = updatedAt, consolidatedAt = consolidatedAt, timeZone = zone)
 
     @Test
+    fun `background scan keeps Agent policy when auto dream is enabled`() {
+        val assistant = Assistant(enableMemory = true, autoConsolidateMemory = true)
+        val settings = Settings(assistants = listOf(assistant))
+        val conversation = Conversation(assistantId = assistant.id, messageNodes = emptyList())
+        assertEquals(assistant, settings.memoryAssistantOf(conversation))
+        listOf(AgentMode.PLAN, AgentMode.EXECUTE).forEach { mode ->
+            assertNull(settings.memoryAssistantOf(conversation.copy(config = ConversationConfig(agentMode = mode))))
+        }
+        val manual = settings.copy(assistants = listOf(assistant.copy(autoConsolidateMemory = false)))
+        assertEquals(false, manual.memoryAssistantOf(conversation)?.autoConsolidateMemory)
+    }
+
+    @Test
     fun `only turns whose user message is newer than the mark are pending`() {
         val messages = listOf(user(1), assistant(2), user(3), assistant(4), user(5), assistant(6))
 

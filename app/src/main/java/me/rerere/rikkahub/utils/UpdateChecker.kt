@@ -3,6 +3,8 @@ package me.rerere.rikkahub.utils
 import android.app.DownloadManager
 import android.content.Context
 import android.os.Environment
+import android.os.Build
+import kotlinx.coroutines.CancellationException
 import android.widget.Toast
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +23,6 @@ import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-private const val API_URL = "https://api.github.com/repos/itflash/rikkahub/releases/latest"
-
 class UpdateChecker(
     private val client: OkHttpClient,
     appScope: AppScope,
@@ -37,37 +37,21 @@ class UpdateChecker(
 
     private fun checkUpdate(): Flow<UiState<UpdateInfo>> = flow {
         emit(UiState.Loading)
-        emit(
-            UiState.Success(
-                data = try {
-                    val response = client.newCall(
-                        Request.Builder()
-                            .url(API_URL)
-                            .get()
-                            .addHeader(
-                                "User-Agent",
-                                "itflash-rikkahub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
-                            )
-                            .build()
-                    ).await()
-                    if (!response.isSuccessful) throw Exception("Failed to fetch update info")
-                    val release = json.decodeFromString<GitHubRelease>(response.body.string())
-                    if (release.draft || release.prerelease) throw Exception("No stable release published")
-                    val asset = release.assets.firstOrNull { it.name.endsWith("-arm64-v8a.apk") }
-                        ?: release.assets.firstOrNull { it.name.endsWith(".apk") }
-                        ?: throw Exception("No APK published")
-                    UpdateInfo(
-                        version = release.tagName.removePrefix("v"),
-                        publishedAt = release.publishedAt,
-                        changelog = release.body,
-                        downloads = listOf(UpdateDownload(asset.name, asset.downloadUrl, asset.size.toString())),
-                    )
-                } catch (e: Exception) {
-                    throw Exception("Failed to fetch update info", e)
-                }
-            )
-        )
+        val info = client.newCall(
+            Request.Builder()
+                .url(FORK_RELEASES_API)
+                .addHeader("Accept", "application/vnd.github+json")
+                .addHeader("User-Agent", "itflash-rikkahub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}")
+                .get()
+                .build()
+        ).await().use { response ->
+            if (!response.isSuccessful) error("Failed to fetch update info (${response.code})")
+            val releases = json.decodeFromString<List<ForkRelease>>(response.body.string())
+            selectForkRelease(releases, Build.SUPPORTED_ABIS.toList())
+        }
+        emit(if (info == null) UiState.Idle else UiState.Success(info))
     }.catch {
+        if (it is CancellationException) throw it
         emit(UiState.Error(it))
     }.flowOn(Dispatchers.IO)
 
@@ -102,23 +86,6 @@ data class UpdateDownload(
     val name: String,
     val url: String,
     val size: String
-)
-
-@Serializable
-private data class GitHubRelease(
-    @kotlinx.serialization.SerialName("tag_name") val tagName: String,
-    @kotlinx.serialization.SerialName("published_at") val publishedAt: String,
-    val body: String = "",
-    val draft: Boolean = false,
-    val prerelease: Boolean = false,
-    val assets: List<GitHubAsset> = emptyList(),
-)
-
-@Serializable
-private data class GitHubAsset(
-    val name: String,
-    @kotlinx.serialization.SerialName("browser_download_url") val downloadUrl: String,
-    val size: Long,
 )
 
 @Serializable
