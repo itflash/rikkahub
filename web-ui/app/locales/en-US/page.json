@@ -1,8 +1,8 @@
 {
   "conversations": {
     "meta": {
-      "title": "RikkaHub Web",
-      "description": "RikkaHub web client"
+      "title": "itflash-rikkahub Web",
+      "description": "itflash-rikkahub web client"
     },
     "preview": {
       "empty_message": "Empty message",

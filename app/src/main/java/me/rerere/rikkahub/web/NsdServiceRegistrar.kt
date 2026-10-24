@@ -5,13 +5,14 @@ import android.net.wifi.WifiManager
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.BuildConfig
 import java.net.InetAddress
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
 
 private const val TAG = "NsdServiceRegistrar"
 private const val DEFAULT_SERVICE_TYPE = "_http._tcp.local."
-const val DEFAULT_SERVICE_NAME = "rikkahub"
+const val DEFAULT_SERVICE_NAME = "itflash-rikkahub"
 
 data class RegisteredServiceInfo(
     val serviceName: String,
@@ -63,7 +64,7 @@ class NsdServiceRegistrar(
                 serviceType,
                 serviceName,
                 port,
-                "RikkaHub Web Server"
+                "${BuildConfig.VERSION_NAME} Web Server"
             )
             mdns.registerService(serviceInfo)
 

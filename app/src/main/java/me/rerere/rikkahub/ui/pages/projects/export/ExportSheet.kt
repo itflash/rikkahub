@@ -81,7 +81,7 @@ fun ExportSheet(id: String, entryPath: String?, onDismissRequest: () -> Unit) {
                                 try {
                                     if (result is ExportResult.Images) saveImagesToGallery(context, result.files)
                                     else saveToDownloads(context, result.files.first(), mime)
-                                    Toast.makeText(context, if (result is ExportResult.Images) "已保存到 相册/RikkaHub" else "已保存到 下载/RikkaHub", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, if (result is ExportResult.Images) "已保存到 相册/itflash-rikkahub" else "已保存到 下载/itflash-rikkahub", Toast.LENGTH_LONG).show()
                                 } catch (e: CancellationException) { throw e
                                 } catch (e: Exception) { Toast.makeText(context, e.message ?: "保存失败", Toast.LENGTH_LONG).show()
                                 } finally { saving = false }

@@ -32,11 +32,11 @@ fun shareFiles(context: Context, files: List<File>, mimeType: String) {
     context.startActivity(Intent.createChooser(intent, null).apply { if (context.getActivity() == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
 }
 
-suspend fun saveToDownloads(context: Context, file: File, mimeType: String, subDir: String = "RikkaHub"): Uri? =
+suspend fun saveToDownloads(context: Context, file: File, mimeType: String, subDir: String = "itflash-rikkahub"): Uri? =
     savePublicFile(context, file, mimeType, Environment.DIRECTORY_DOWNLOADS, subDir, image = false)
 
 suspend fun saveImagesToGallery(context: Context, files: List<File>) {
-    for (file in files) savePublicFile(context, file, "image/png", Environment.DIRECTORY_PICTURES, "RikkaHub", image = true)
+    for (file in files) savePublicFile(context, file, "image/png", Environment.DIRECTORY_PICTURES, "itflash-rikkahub", image = true)
 }
 
 private suspend fun savePublicFile(context: Context, file: File, mimeType: String, directory: String, subDir: String, image: Boolean): Uri = withContext(Dispatchers.IO) {

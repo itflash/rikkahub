@@ -41,7 +41,7 @@ class RemoteFileStoreTest {
     )
 
     // "hello" 的 SHA-256
-    private val helloKey = "rikkahub_uploads/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.png"
+    private val helloKey = "itflash_rikkahub_uploads/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.png"
 
     private fun file(name: String, content: String = "hello"): File =
         folder.newFile(name).apply { writeText(content) }
@@ -158,8 +158,8 @@ class RemoteFileStoreTest {
     @Test
     fun `sweep deletes only objects past the retention across all pages`() = runBlocking {
         storage.pageSize = 2
-        val expired = (1..3).map { "rikkahub_uploads/old$it.png" }
-        val fresh = (1..2).map { "rikkahub_uploads/new$it.png" }
+        val expired = (1..3).map { "itflash_rikkahub_uploads/old$it.png" }
+        val fresh = (1..2).map { "itflash_rikkahub_uploads/new$it.png" }
         expired.forEach { storage.objects[it] = now - 8.days.toJavaDuration() }
         fresh.forEach { storage.objects[it] = now - 6.days.toJavaDuration() }
         storage.objects["rikkahub_backups/backup_1.zip"] = now - 30.days.toJavaDuration()
@@ -173,10 +173,10 @@ class RemoteFileStoreTest {
     @Test
     fun `upload sweeps at most once a day`() = runBlocking {
         val file = file("a.png")
-        storage.objects["rikkahub_uploads/old.png"] = now - 8.days.toJavaDuration()
+        storage.objects["itflash_rikkahub_uploads/old.png"] = now - 8.days.toJavaDuration()
 
         store.upload(file).getOrThrow()
-        assertEquals(listOf("rikkahub_uploads/old.png"), storage.deleted)
+        assertEquals(listOf("itflash_rikkahub_uploads/old.png"), storage.deleted)
         assertEquals(1, storage.lists)
 
         advance(23.hours)

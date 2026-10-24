@@ -161,7 +161,7 @@ class RemoteFileStore internal constructor(
     private data class KnownObject(val lastModified: Instant, val checkedAt: Instant)
 
     companion object {
-        const val KEY_PREFIX = "rikkahub_uploads/"
+        const val KEY_PREFIX = "itflash_rikkahub_uploads/"
 
         /** 对象的保留时长，同时也是 SigV4 预签名地址的最长有效期。 */
         val RETENTION = 7.days

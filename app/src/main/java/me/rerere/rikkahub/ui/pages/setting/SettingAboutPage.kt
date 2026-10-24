@@ -60,7 +60,6 @@ import androidx.graphics.shapes.Morph
 import kotlin.math.roundToInt
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Code
-import me.rerere.hugeicons.stroke.Earth
 import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Github
 import me.rerere.hugeicons.stroke.SmartPhone01
@@ -197,7 +196,7 @@ fun SettingAboutPage() {
                         )
 
                         Text(
-                            text = "RikkaHub",
+                            text = stringResource(R.string.app_name),
                             style = MaterialTheme.typography.headlineLargeEmphasized.copy(
                                 fontWeight = FontWeight.Black,
                             ),
@@ -235,21 +234,15 @@ fun SettingAboutPage() {
                     val contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                     CardGroup {
                         item(
-                            onClick = { context.openUrl("https://rikka-ai.com/") },
-                            leadingContent = { CardGroupIcon(HugeIcons.Earth, containerColor = containerColor, contentColor = contentColor) },
-                            supportingContent = { Text("https://rikka-ai.com") },
-                            headlineContent = { Text(stringResource(R.string.about_page_website)) },
-                        )
-                        item(
-                            onClick = { context.openUrl("https://github.com/rikkahub/rikkahub") },
+                            onClick = { context.openUrl("https://github.com/itflash/rikkahub") },
                             leadingContent = { CardGroupIcon(HugeIcons.Github, containerColor = containerColor, contentColor = contentColor) },
-                            supportingContent = { Text("https://github.com/rikkahub/rikkahub") },
+                            supportingContent = { Text("https://github.com/itflash/rikkahub") },
                             headlineContent = { Text(stringResource(R.string.about_page_github)) },
                         )
                         item(
-                            onClick = { context.openUrl("https://github.com/rikkahub/rikkahub/blob/master/LICENSE") },
+                            onClick = { context.openUrl("https://github.com/itflash/rikkahub/blob/master/LICENSE") },
                             leadingContent = { CardGroupIcon(HugeIcons.File02, containerColor = containerColor, contentColor = contentColor) },
-                            supportingContent = { Text("https://github.com/rikkahub/rikkahub/blob/master/LICENSE") },
+                            supportingContent = { Text("https://github.com/itflash/rikkahub/blob/master/LICENSE") },
                             headlineContent = { Text(stringResource(R.string.about_page_license)) },
                         )
                     }

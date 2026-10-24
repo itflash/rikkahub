@@ -22,8 +22,6 @@ import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.MemoryConsolidator
 import me.rerere.rikkahub.data.ai.TranslationHandler
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
-import me.rerere.rikkahub.data.remote.RikkaHubAPI
-import me.rerere.rikkahub.data.remote.SponsorAPI
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.remote.RemoteFileStore
 import me.rerere.rikkahub.data.sync.BackupManager
@@ -200,7 +198,7 @@ val dataSourceModule = module {
                 if (originalRequest.header(HttpHeaders.UserAgent) == null) {
                     val userAgent = settingsStore.settingsFlow.value.networkSetting.userAgent
                         .trim()
-                        .ifEmpty { "RikkaHub-Android/${BuildConfig.VERSION_NAME}" }
+                        .ifEmpty { "itflash-rikkahub-Android/${BuildConfig.VERSION_NAME}" }
                     requestBuilder.addHeader(HttpHeaders.UserAgent, userAgent)
                 }
 
@@ -231,10 +229,6 @@ val dataSourceModule = module {
             })
             .build()
         client.also { SearchService.init(it, get()) }
-    }
-
-    single {
-        SponsorAPI.create(get())
     }
 
     single {
@@ -286,14 +280,4 @@ val dataSourceModule = module {
         MediaGenerationManager(client = get())
     }
 
-    single<Retrofit> {
-        Retrofit.Builder()
-            .baseUrl("https://api.rikka-ai.com")
-            .addConverterFactory(get<Json>().asConverterFactory("application/json; charset=UTF8".toMediaType()))
-            .build()
-    }
-
-    single<RikkaHubAPI> {
-        get<Retrofit>().create(RikkaHubAPI::class.java)
-    }
 }
