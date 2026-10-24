@@ -89,6 +89,7 @@ jobs:
         run: |
           chmod +x gradlew
           python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 .github/scripts/check_resource_defaults.py
           ./gradlew :app:testDebugUnitTest :ai:testDebugUnitTest :search:testDebugUnitTest :mediagen:testDebugUnitTest :workspace:testDebugUnitTest :speech:testDebugUnitTest :oauth:testDebugUnitTest :ui:testDebugUnitTest
 
       - name: Gradle Build

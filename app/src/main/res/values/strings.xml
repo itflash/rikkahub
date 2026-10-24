@@ -1658,4 +1658,7 @@ https://github.com/itflash/rikkahub</string>
   <string name="skill_detail_page_builtin_readonly">Built-in skills cannot be modified</string>
   <string name="skill_detail_page_name_change_error">The skill name cannot be changed. The name field must be %1$s</string>
   <string name="skill_detail_page_save_failed">Save failed</string>
+  <string name="chat_page_compress_nothing_to_compress">No new messages to compress since the last summary</string>
+  <string name="chat_page_compress_handle_pending_tools">Handle the pending tool calls before compressing</string>
+  <string name="chat_page_compress_tool_call_response">The model tried to call a tool instead of writing the summary. Please try again.</string>
 </resources>
