@@ -256,6 +256,7 @@
   <string name="chat_page_compress_context_desc">Compress the conversation into a summary to save tokens</string>
   <string name="chat_page_compress_context_title">Compress Conversation History</string>
   <string name="chat_page_compress_keep_recent">Keep recent messages</string>
+  <string name="chat_page_compress_keep_recent_desc">These messages are not compressed and stay after the summary. 0 compresses everything and reuses the prompt cache best; if the conversation is too long to compress, keep more messages.</string>
   <string name="chat_page_compress_not_enough_messages">Not enough messages to compress. Reduce the number of messages to keep or add more messages.</string>
   <string name="chat_page_compress_target_tokens">Target Token Size</string>
   <string name="chat_page_compressing">Compressing...</string>

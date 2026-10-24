@@ -109,14 +109,6 @@ fun CompressContextDialog(
                         }
                     }
 
-                    // Keep recent messages input
-                    OutlinedNumberInput(
-                        value = keepRecentMessages,
-                        onValueChange = { keepRecentMessages = it },
-                        label = stringResource(R.string.chat_page_compress_keep_recent),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
                     // Additional context input
                     OutlinedTextField(
                         value = additionalPrompt,
