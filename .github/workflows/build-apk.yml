@@ -85,17 +85,32 @@ jobs:
             cp .github/ci/google-services.placeholder.json app/google-services.json
           fi
 
-      - name: Gradle Build
+      - name: Run regression tests
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          ./gradlew :app:testDebugUnitTest :ai:testDebugUnitTest :search:testDebugUnitTest :mediagen:testDebugUnitTest :workspace:testDebugUnitTest :speech:testDebugUnitTest :oauth:testDebugUnitTest :ui:testDebugUnitTest
 
-      - name: Collect APKs
+      - name: Gradle Build
+        run: ./gradlew assembleRelease
+
+      - name: Collect APKs and build provenance
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/release/app-arm64-v8a-release.apk dist/rikkahub-arm64-v8a.apk
           cp app/build/outputs/apk/release/app-universal-release.apk dist/rikkahub-universal.apk
+          cp app/build/outputs/mapping/release/mapping.txt dist/mapping.txt
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          python3 .github/scripts/release_manifest.py
+
+      # 正式版本必须从特定 workflow run 的产物发布，不能使用本机 APK 或可被覆盖的 dev 附件。
+      - name: Archive signed CI build
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
 
       # 删除上一次的发布，让 dev tag 始终指向最新提交
       - name: Remove previous release
@@ -110,7 +125,8 @@ jobs:
           tag_name: dev
           target_commitish: ${{ github.sha }}
           name: 最新构建 ${{ env.SHORT_SHA }}
-          make_latest: true
+          make_latest: false
+          prerelease: true
           body: |
             推送自动构建（commit `${{ github.sha }}`）
 
