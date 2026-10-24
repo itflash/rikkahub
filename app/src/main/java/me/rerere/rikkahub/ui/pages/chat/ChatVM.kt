@@ -300,6 +300,10 @@ class ChatVM(
         chatService.handleToolApproval(_conversationId, toolCallId, approved = true, answer = answer)
     }
 
+    fun resumeAgentRun() {
+        chatService.resumeAgentRun(_conversationId)
+    }
+
     fun stopGeneration() {
         viewModelScope.launch {
             chatService.stopGeneration(_conversationId)

@@ -32,6 +32,7 @@ import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
+import me.rerere.rikkahub.data.ai.agent.AgentCheckpointPhase
 import me.rerere.rikkahub.data.ai.agent.AgentPolicy
 import me.rerere.rikkahub.data.ai.agent.prepareAgentToolCalls
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
@@ -98,6 +99,7 @@ class GenerationLoop(
         conversationId: Uuid? = null,
         workspaceCwd: String? = null,
         agentRun: AgentRunTracker? = null,
+        onAgentCheckpoint: suspend (List<UIMessage>, AgentCheckpointPhase) -> Unit = { _, _ -> },
     ): Flow<GenerationChunk> = flow {
         val policy = AgentPolicy(assistant.agentMode)
         val model = policy.model(model)
@@ -106,6 +108,11 @@ class GenerationLoop(
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = messages
+        suspend fun checkpoint(phase: AgentCheckpointPhase) {
+            val tracker = agentRun ?: return
+            tracker.recordContextSize(messages.size)
+            onAgentCheckpoint(messages, phase)
+        }
 
         val iterationLimit = if (agentRun != null) agentRun.snapshot.maxSteps + 1 else maxSteps
         for (stepIndex in 0 until iterationLimit) {
@@ -122,6 +129,7 @@ class GenerationLoop(
             // Also handles a pending-only batch without sending it back to the provider.
             if (pendingTools.isEmpty()) {
                 agentRun?.beginStep()
+                checkpoint(AgentCheckpointPhase.MODEL_REQUEST)
                 generateInternal(
                     assistant = assistant,
                     settings = settings,
@@ -177,6 +185,10 @@ class GenerationLoop(
                         .toLocalDateTime(TimeZone.currentSystemDefault())
                 )
                 emit(GenerationChunk.Messages(messages))
+                checkpoint(
+                    if (messages.last().getTools().none { !it.isExecuted }) AgentCheckpointPhase.FINISHED
+                    else AgentCheckpointPhase.READY,
+                )
 
                 toolsToProcess = messages.last().getTools().filter { !it.isExecuted }
             } else {
@@ -185,7 +197,10 @@ class GenerationLoop(
                 toolsToProcess = messages.last().getTools().filter { !it.isExecuted }
             }
 
-            if (toolsToProcess.isEmpty()) break
+            if (toolsToProcess.isEmpty()) {
+                checkpoint(AgentCheckpointPhase.FINISHED)
+                break
+            }
             val checkedTools = prepareAgentToolCalls(toolsToProcess, tools)
             if (checkedTools != toolsToProcess) {
                 val lastMessage = messages.last()
@@ -200,13 +215,14 @@ class GenerationLoop(
                 agentRun?.waitForUser(checkedTools.any {
                     it.toolName == "ask_user" && it.approvalState is ToolApprovalState.Pending
                 })
+                checkpoint(AgentCheckpointPhase.WAITING_USER)
                 Log.i(TAG, "generateText: waiting for tool approval")
                 break
             }
 
             // Handle tools (execute approved tools, handle denied tools)
-            val executedTools = arrayListOf<UIMessagePart.Tool>()
             checkedTools.forEach { tool ->
+                val executedTools = arrayListOf<UIMessagePart.Tool>()
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
                         // Tool was denied by user
@@ -242,7 +258,12 @@ class GenerationLoop(
                     }
 
                     else -> {
-                        // Auto or Approved - execute the tool
+                        // The durable write-ahead marker is OUTSIDE the tool-error handler:
+                        // a failed commit must abort the run, never become a model-visible retry.
+                        currentCoroutineContext().ensureActive()
+                        agentRun?.beginTool(tool.toolName, tool.toolCallId)
+                        checkpoint(AgentCheckpointPhase.TOOL_IN_FLIGHT)
+                        var executionStarted = false
                         runCatching {
                             val toolDef = tools.find { toolDef -> toolDef.name == tool.toolName }
                                 ?: error("Tool ${tool.toolName} not found")
@@ -253,7 +274,7 @@ class GenerationLoop(
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
                             currentCoroutineContext().ensureActive()
-                            agentRun?.beginTool(toolDef.name)
+                            executionStarted = true
                             val result = completedToolOutput(toolDef.execute(args))
                             val hasShellAccess = tools.any { it.name == "workspace_shell" }
                             executedTools += tool.copy(
@@ -262,6 +283,10 @@ class GenerationLoop(
                         }.onFailure {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
                             if (it is CancellationException) throw it
+                            if (agentRun != null && executionStarted && tools.find { def -> def.name == tool.toolName }?.readOnly != true) {
+                                agentRun.interrupt("${tool.toolName} 执行出错，无法确认是否已产生副作用；请核对实际结果，不能自动重试。")
+                                throw it
+                            }
                             it.printStackTrace()
                             executedTools += tool.copy(
                                 output = listOf(
@@ -283,32 +308,22 @@ class GenerationLoop(
                         }
                     }
                 }
-            }
 
-            if (executedTools.isEmpty()) {
-                // No results to add (all tools were pending)
-                break
+                if (executedTools.isNotEmpty()) {
+                    val lastMessage = messages.last()
+                    messages = messages.dropLast(1) + lastMessage.copy(parts = lastMessage.parts.map { part ->
+                        if (part is UIMessagePart.Tool) {
+                            executedTools.find { it.toolCallId == part.toolCallId } ?: part
+                        } else part
+                    })
+                    emit(GenerationChunk.Messages(messages.transforms(
+                        transformers = outputTransformers, context = context, model = model,
+                        assistant = assistant, settings = settings,
+                    )))
+                    agentRun?.finishTool()
+                    checkpoint(AgentCheckpointPhase.READY)
+                }
             }
-
-            // Update last message with executed tools (NOT create TOOL message)
-            val lastMessage = messages.last()
-            val updatedParts = lastMessage.parts.map { part ->
-                if (part is UIMessagePart.Tool) {
-                    executedTools.find { it.toolCallId == part.toolCallId } ?: part
-                } else part
-            }
-            messages = messages.dropLast(1) + lastMessage.copy(parts = updatedParts)
-            emit(
-                GenerationChunk.Messages(
-                    messages.transforms(
-                        transformers = outputTransformers,
-                        context = context,
-                        model = model,
-                        assistant = assistant,
-                        settings = settings
-                    )
-                )
-            )
         }
 
     }.flowOn(Dispatchers.IO)

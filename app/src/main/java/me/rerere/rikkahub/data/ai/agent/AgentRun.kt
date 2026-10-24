@@ -1,21 +1,24 @@
 package me.rerere.rikkahub.data.ai.agent
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.Serializable
 import me.rerere.rikkahub.data.model.AgentMode
 import kotlin.uuid.Uuid
 
+@Serializable
 enum class AgentRunStatus {
     PREPARING, GENERATING, EXECUTING_TOOL, WAITING_APPROVAL, WAITING_INPUT,
-    COMPLETED, FAILED, CANCELLED, BUDGET_EXHAUSTED;
+    COMPLETED, FAILED, CANCELLED, BUDGET_EXHAUSTED, PAUSED, INTERRUPTED;
 
     val isWaiting: Boolean get() = this == WAITING_APPROVAL || this == WAITING_INPUT
     val isTerminal: Boolean get() = when (this) {
-        COMPLETED, FAILED, CANCELLED, BUDGET_EXHAUSTED -> true
+        COMPLETED, FAILED, CANCELLED, BUDGET_EXHAUSTED, INTERRUPTED -> true
         else -> false
     }
 }
 
-/** In-memory execution snapshot. It is not a durable recovery checkpoint. */
+/** Execution snapshot; durable boundaries are recorded in AgentCheckpoint. */
+@Serializable
 data class AgentRun(
     val id: Uuid = Uuid.random(),
     val mode: AgentMode,
@@ -24,6 +27,9 @@ data class AgentRun(
     val steps: Int = 0,
     val toolCalls: Int = 0,
     val currentTool: String? = null,
+    val currentToolCallId: String? = null,
+    // The generation may target a historical branch prefix rather than the full conversation.
+    val contextMessageCount: Int? = null,
     val detail: String? = null,
 )
 
@@ -37,6 +43,11 @@ class AgentRunTracker(
     maxSteps: Int,
     private val onUpdate: (AgentRun) -> Unit = {},
 ) {
+    companion object {
+        fun restore(run: AgentRun, onUpdate: (AgentRun) -> Unit): AgentRunTracker =
+            AgentRunTracker(run.mode, run.maxSteps, onUpdate).also { it.snapshot = run }
+    }
+
     @Volatile
     var snapshot = AgentRun(mode = mode, maxSteps = maxSteps.coerceIn(1, 256))
         private set
@@ -48,9 +59,16 @@ class AgentRunTracker(
 
     @Synchronized
     fun resume(mode: AgentMode) {
-        check(snapshot.status.isWaiting) { "Agent 任务已结束，不能继续旧的工具调用，请重新发起任务。" }
+        check(snapshot.status.isWaiting || snapshot.status == AgentRunStatus.PAUSED) { "Agent 任务已结束，不能继续旧的工具调用，请重新发起任务。" }
         // Permissions follow the current conversation; the run's original budget stays fixed.
         publish(snapshot.copy(mode = mode, status = AgentRunStatus.PREPARING, detail = null))
+    }
+
+    @Synchronized
+    fun recordContextSize(count: Int) {
+        require(count >= 0)
+        if (snapshot.status.isTerminal) return
+        publish(snapshot.copy(contextMessageCount = count))
     }
 
     @Synchronized
@@ -64,10 +82,16 @@ class AgentRunTracker(
     }
 
     @Synchronized
-    fun beginTool(name: String) {
+    fun beginTool(name: String, callId: String? = null) {
         check(!snapshot.status.isTerminal) { "Agent task is no longer active" }
         publish(snapshot.copy(status = AgentRunStatus.EXECUTING_TOOL, currentTool = name,
-            toolCalls = snapshot.toolCalls + 1))
+            toolCalls = snapshot.toolCalls + 1, currentToolCallId = callId))
+    }
+
+    @Synchronized
+    fun finishTool() {
+        if (snapshot.status.isTerminal) return
+        publish(snapshot.copy(status = AgentRunStatus.PREPARING, currentTool = null, currentToolCallId = null))
     }
 
     @Synchronized
@@ -81,13 +105,23 @@ class AgentRunTracker(
 
     @Synchronized
     fun complete() {
-        if (snapshot.status.isTerminal || snapshot.status.isWaiting) return
+        if (snapshot.status.isTerminal || snapshot.status.isWaiting || snapshot.status == AgentRunStatus.PAUSED) return
         publish(snapshot.copy(status = AgentRunStatus.COMPLETED, currentTool = null))
+    }
+
+    @Synchronized
+    fun interrupt(reason: String) {
+        if (snapshot.status.isTerminal) return
+        publish(snapshot.copy(status = AgentRunStatus.INTERRUPTED, detail = reason.take(300)))
     }
 
     @Synchronized
     fun fail(error: Throwable) {
         if (snapshot.status.isTerminal) return
+        if (snapshot.currentToolCallId != null) {
+            interrupt("工具调用已中断，结果无法确认；请核对实际结果后再发起新任务。${error.message.orEmpty()}")
+            return
+        }
         publish(snapshot.copy(
             status = if (error is CancellationException) AgentRunStatus.CANCELLED else AgentRunStatus.FAILED,
             currentTool = null,

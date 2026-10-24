@@ -18,7 +18,7 @@ import me.rerere.rikkahub.data.ai.agent.AgentRunStatus
 import me.rerere.rikkahub.data.model.AgentMode
 
 @Composable
-fun AgentRunPanel(run: AgentRun, onStop: () -> Unit) {
+fun AgentRunPanel(run: AgentRun, onStop: () -> Unit, onResume: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -45,6 +45,9 @@ fun AgentRunPanel(run: AgentRun, onStop: () -> Unit) {
                 }
                 run.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 3) }
             }
+            if (run.status == AgentRunStatus.PAUSED) {
+                TextButton(onClick = onResume) { Text("继续") }
+            }
             if (!run.status.isTerminal) {
                 TextButton(onClick = onStop) { Text("停止") }
             }
@@ -54,6 +57,8 @@ fun AgentRunPanel(run: AgentRun, onStop: () -> Unit) {
 
 private val AgentRunStatus.label: String
     get() = when (this) {
+        AgentRunStatus.PAUSED -> "已暂停 · 可恢复"
+        AgentRunStatus.INTERRUPTED -> "已中断 · 需核对"
         AgentRunStatus.PREPARING -> "准备中"
         AgentRunStatus.GENERATING -> "生成中"
         AgentRunStatus.EXECUTING_TOOL -> "调用工具"

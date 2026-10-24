@@ -362,7 +362,7 @@ private fun ChatPageContent(
                     val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                     Column {
                     agentRun?.let { run ->
-                        AgentRunPanel(run = run, onStop = vm::stopGeneration)
+                        AgentRunPanel(run = run, onStop = vm::stopGeneration, onResume = vm::resumeAgentRun)
                     }
                     if (project != null && conversation.messageNodes.isEmpty()) {
                         LazyRow(

@@ -3,6 +3,9 @@ package me.rerere.rikkahub.service
 import android.app.Application
 import android.util.Log
 import androidx.core.net.toUri
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -43,6 +46,12 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.agent.AgentRun
 import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
+import me.rerere.rikkahub.data.ai.agent.AgentRunStatus
+import me.rerere.rikkahub.data.ai.agent.AgentCheckpoint
+import me.rerere.rikkahub.data.ai.agent.AgentCheckpointPhase
+import me.rerere.rikkahub.data.ai.agent.agentCheckpointFingerprint
+import me.rerere.rikkahub.data.ai.agent.restoreAgentCheckpoint
+import me.rerere.rikkahub.data.ai.agent.resetRecoveredApprovals
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationLoop
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
@@ -335,7 +344,13 @@ class ChatService(
         // settingsFlow 在启动初期还是占位值，固定配置必须基于真实设置
         val bound = conversation.bindConfig(settingsStore.awaitLoaded())
         if (bound !== conversation) conversationRepo.updateConversationConfig(bound)
-        return bound
+        val checkpoint = conversationRepo.getAgentCheckpoint(conversationId)
+        val recovered = restoreAgentCheckpoint(checkpoint, bound)
+        val restoredConversation = if (recovered != null && !recovered.status.isTerminal) {
+            resetRecoveredApprovals(bound, recovered.contextMessageCount)
+        } else bound
+        sessionManager.getOrCreate(conversationId).restoreAgentRun(restoreAgentCheckpoint(checkpoint, restoredConversation))
+        return restoredConversation
     }
 
     // ---- 发送消息 ----
@@ -594,6 +609,10 @@ class ChatService(
                     if (conversation.currentMessages.none { message ->
                             message.getTools().any { it.toolCallId == toolCallId && it.isPending }
                         }) return@afterPreviousGeneration
+                    check(session.agentRun.value == null ||
+                        settingsStore.awaitLoaded().getAssistantOf(conversation).agentMode != AgentMode.CHAT) {
+                        "继续原 Agent 任务前，请切回计划或执行模式；聊天模式请发起新请求。"
+                    }
                     val newApprovalState = when {
                         answer != null -> ToolApprovalState.Answered(answer)
                         approved -> ToolApprovalState.Approved
@@ -669,7 +688,19 @@ class ChatService(
         var agentRun: AgentRunTracker? = null
 
         runCatching {
+            check(!resumeAgentRun || assistant.agentMode != AgentMode.CHAT || session.agentRun.value == null) {
+                "继续原 Agent 任务前，请切回计划或执行模式；聊天模式请发起新请求。"
+            }
+            if (resumeAgentRun && assistant.agentMode != AgentMode.CHAT) {
+                val recovered = restoreAgentCheckpoint(conversationRepo.getAgentCheckpoint(conversationId), initialConversation)
+                if (recovered == null || recovered.status.isTerminal || recovered.id != session.agentRun.value?.id) {
+                    val reason = recovered?.detail ?: "没有匹配的安全检查点，请重新发起任务。"
+                    session.interruptAgentRun(reason)
+                    error(reason)
+                }
+            }
             agentRun = session.beginAgentRun(assistant.agentMode, assistant.agentMaxSteps, resumeAgentRun)
+            if (assistant.agentMode == AgentMode.CHAT) conversationRepo.clearAgentCheckpoint(conversationId)
 
 
             // reset suggestions
@@ -687,8 +718,19 @@ class ChatService(
             }
 
             // check invalid messages
-            checkInvalidMessages(conversationId)
+            if (!resumeAgentRun) checkInvalidMessages(conversationId)
             val conversation = getConversationFlow(conversationId).value
+            val requestMessages = conversation.currentMessages.let {
+                when {
+                    resumeAgentRun && agentRun != null -> it.take(agentRun!!.snapshot.contextMessageCount ?: it.size)
+                    messageRange != null -> it.subList(messageRange.start, messageRange.endInclusive + 1)
+                    else -> it
+                }
+            }
+            agentRun?.let {
+                it.recordContextSize(requestMessages.size)
+                persistAgentCheckpoint(session, it.snapshot, AgentCheckpointPhase.READY, replaceRun = !resumeAgentRun)
+            }
 
             val tools = try {
                 chatToolFactory.createTools(
@@ -699,6 +741,7 @@ class ChatService(
                 )
             } catch (error: InvalidMcpServerNamesException) {
                 agentRun?.fail(error)
+                persistAgentTerminalSafely(session)
                 sessionManager.get(conversationId)?.messageQueue?.pause()
                 addError(
                     error = IllegalStateException(
@@ -718,13 +761,18 @@ class ChatService(
                 model = model,
                 processingStatus = session.processingStatus,
                 agentRun = agentRun,
-                messages = conversation.currentMessages.let {
-                    if (messageRange != null) {
-                        it.subList(messageRange.start, messageRange.endInclusive + 1)
-                    } else {
-                        it
+                onAgentCheckpoint = { messages, phase ->
+                    val tracker = checkNotNull(agentRun)
+                    currentCoroutineContext().ensureActive()
+                    val current = session.state.value
+                    check(agentCheckpointFingerprint(current.copy(messageNodes = emptyList())) ==
+                        agentCheckpointFingerprint(initialConversation.copy(messageNodes = emptyList())) &&
+                        current.config?.agentMode == initialConversation.config?.agentMode) {
+                        "运行配置已变化，任务已停止。请重新发起任务。"
                     }
+                    persistAgentCheckpoint(session, tracker.snapshot, phase, messages)
                 },
+                messages = requestMessages,
                 assistant = assistant,
                 conversationId = conversationId,
                 conversationSystemPrompt = conversation.customSystemPrompt,
@@ -771,6 +819,7 @@ class ChatService(
             }
         }.onFailure {
             agentRun?.fail(it)
+            if (agentRun != null) persistAgentTerminalSafely(session)
             // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             if (it is CancellationException) throw it
@@ -782,6 +831,18 @@ class ChatService(
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
             agentRun?.complete()
+            agentRun?.let { tracker ->
+                try {
+                    persistAgentCheckpoint(session, tracker.snapshot,
+                        if (tracker.snapshot.status.isWaiting) AgentCheckpointPhase.WAITING_USER else AgentCheckpointPhase.FINISHED,
+                    )
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    session.messageQueue.pause()
+                    addError(error, conversationId, title = context.getString(R.string.error_title_generation))
+                    return@onSuccess
+                }
+            }
             val finalConversation = getConversationFlow(conversationId).value
 
             sessionManager.launchWithSession(conversationId) {
@@ -794,6 +855,53 @@ class ChatService(
                 memoryConsolidationScheduler.onTurnFinished(finalConversation)
             }
         }
+    }
+
+    private suspend fun persistAgentCheckpoint(
+        session: ConversationSession,
+        run: AgentRun,
+        phase: AgentCheckpointPhase,
+        messages: List<UIMessage>? = null,
+        replaceRun: Boolean = false,
+    ) {
+        check(session.agentRun.value?.id == run.id) { "Agent task was replaced" }
+        val conversation = messages?.let { session.state.value.updateCurrentMessages(it) } ?: session.state.value
+        conversationRepo.saveAgentCheckpoint(conversation, AgentCheckpoint(
+            run = run, phase = phase, fingerprint = agentCheckpointFingerprint(conversation),
+        ), replaceRun = replaceRun)
+        if (messages != null && session.agentRun.value?.id == run.id) {
+            // Preserve metadata edits which may have arrived while the database write suspended.
+            session.updateConversation(session.state.value.updateCurrentMessages(messages))
+        }
+    }
+
+    private suspend fun persistAgentTerminalSafely(session: ConversationSession) = withContext(NonCancellable) {
+        val run = session.agentRun.value ?: return@withContext
+        if (!run.status.isTerminal) return@withContext
+        try {
+            persistAgentCheckpoint(session, run, AgentCheckpointPhase.FINISHED)
+        } catch (error: Exception) {
+            // An old in-flight journal is intentionally retained if storage is unavailable.
+            // Recovery will block, rather than pretending the operation never started.
+            Logging.log(TAG, "Failed to persist Agent terminal state: $error")
+        }
+    }
+
+    /** Explicit recovery only; loading a conversation never starts provider/tool work. */
+    fun resumeAgentRun(conversationId: Uuid) = synchronized(sessionManager.getOrCreate(conversationId)) {
+        val session = sessionManager.getOrCreate(conversationId)
+        if (session.isGenerating || session.agentRun.value?.status != AgentRunStatus.PAUSED) return@synchronized
+        val job = launchGenerationJob(conversationId) {
+            try {
+                handleMessageComplete(conversationId, resumeAgentRun = true)
+                _generationDoneFlow.emit(conversationId)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                session.messageQueue.pause()
+                addError(error, conversationId, title = context.getString(R.string.error_title_generation))
+            }
+        }
+        session.setJob(job)
     }
 
     // ---- 检查无效消息 ----
@@ -858,7 +966,9 @@ class ChatService(
 
     private suspend fun finishInterruptedPendingTools(conversationId: Uuid) {
         val currentConversation = getConversationFlow(conversationId).value
-        val lastNode = currentConversation.messageNodes.lastOrNull() ?: return
+        val targetIndex = sessionManager.get(conversationId)?.agentRun?.value?.contextMessageCount?.minus(1)
+            ?.takeIf { it in currentConversation.messageNodes.indices } ?: currentConversation.messageNodes.lastIndex
+        val lastNode = currentConversation.messageNodes.getOrNull(targetIndex) ?: return
         val lastMessage = lastNode.currentMessage
         val updatedMessage = lastMessage.finishPendingTools(::cancelToolByUser)
         if (updatedMessage == lastMessage) {
@@ -866,11 +976,11 @@ class ChatService(
         }
 
         val updatedConversation = currentConversation.copy(
-            messageNodes = currentConversation.messageNodes.dropLast(1) + lastNode.copy(
-                messages = lastNode.messages.map { message ->
+            messageNodes = currentConversation.messageNodes.mapIndexed { index, node ->
+                if (index == targetIndex) node.copy(messages = node.messages.map { message ->
                     if (message.id == lastMessage.id) updatedMessage else message
-                }
-            )
+                }) else node
+            }
         )
         saveConversation(conversationId, updatedConversation)
     }
@@ -1563,5 +1673,6 @@ class ChatService(
         session.cancelAgentRun()
         jobs.forEach { it.join() }
         finishInterruptedPendingTools(conversationId)
+        persistAgentTerminalSafely(session)
     }
 }

@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.ai.agent.AgentRun
 import me.rerere.rikkahub.data.ai.agent.AgentRunTracker
+import me.rerere.rikkahub.data.ai.agent.AgentRunStatus
 import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
@@ -103,6 +104,15 @@ class ConversationSession(
     private var agentTracker: AgentRunTracker? = null
 
     @Synchronized
+    fun restoreAgentRun(run: AgentRun?) {
+        if (agentTracker != null || run == null) return
+        _agentRun.value = run
+        agentTracker = AgentRunTracker.restore(run) { update ->
+            _agentRun.update { current -> if (current?.id == update.id) update else current }
+        }
+    }
+
+    @Synchronized
     fun beginAgentRun(mode: AgentMode, maxSteps: Int, resume: Boolean): AgentRunTracker? {
         if (mode == AgentMode.CHAT) {
             agentTracker?.fail(CancellationException("Switched to chat mode"))
@@ -127,6 +137,10 @@ class ConversationSession(
         return tracker
     }
 
+    fun interruptAgentRun(reason: String) {
+        agentTracker?.interrupt(reason)
+    }
+
     @Synchronized
     fun cancelAgentRun() {
         agentTracker?.fail(CancellationException("Stopped by user"))
@@ -140,7 +154,8 @@ class ConversationSession(
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
-                messageQueue.state.value.messages.isNotEmpty() || agentRun.value?.status?.isWaiting == true
+                messageQueue.state.value.messages.isNotEmpty() || agentRun.value?.status?.isWaiting == true ||
+                agentRun.value?.status == AgentRunStatus.PAUSED
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null

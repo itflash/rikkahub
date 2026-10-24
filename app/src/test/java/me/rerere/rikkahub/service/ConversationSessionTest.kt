@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.ai.agent.AgentRun
 import me.rerere.rikkahub.data.ai.agent.AgentRunStatus
 import me.rerere.rikkahub.data.model.AgentMode
 import me.rerere.rikkahub.data.model.Conversation
@@ -30,6 +31,34 @@ import org.junit.Test
 import kotlin.uuid.Uuid
 
 class ConversationSessionTest {
+    @Test
+    fun `restored paused run retains original id and cumulative budget without starting a job`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        val saved = AgentRun(mode = AgentMode.EXECUTE, maxSteps = 8, steps = 5, toolCalls = 3,
+            status = AgentRunStatus.PAUSED)
+        session.restoreAgentRun(saved)
+        assertNull(session.getJob())
+        assertEquals(saved, session.agentRun.value)
+        val resumed = session.beginAgentRun(AgentMode.PLAN, 128, true)!!
+        assertEquals(saved.id, resumed.snapshot.id)
+        assertEquals(8, resumed.snapshot.maxSteps)
+        assertEquals(5, resumed.snapshot.steps)
+        resumed.beginStep()
+        assertEquals(6, session.agentRun.value?.steps)
+        session.cleanup()
+    }
+
+    @Test
+    fun `loading a checkpoint does not overwrite a live task`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        val live = session.beginAgentRun(AgentMode.EXECUTE, 32, false)!!
+        session.restoreAgentRun(AgentRun(mode = AgentMode.PLAN, maxSteps = 8, status = AgentRunStatus.PAUSED))
+        assertEquals(live.snapshot, session.agentRun.value)
+        session.cleanup()
+    }
+
     @Test
     fun `waiting agent retains its session and approval resumes the same budget`() = runBlocking {
         val id = Uuid.random()

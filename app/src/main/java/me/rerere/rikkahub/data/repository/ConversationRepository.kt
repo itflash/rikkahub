@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.data.repository
 
+import me.rerere.rikkahub.data.ai.agent.AgentCheckpoint
+import me.rerere.rikkahub.data.ai.agent.agentCheckpointFingerprint
+import me.rerere.rikkahub.data.db.entity.AgentCheckpointEntity
 import android.database.sqlite.SQLiteBlobTooBigException
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -311,6 +314,29 @@ class ConversationRepository(
         return conversationDAO.countByAssistant().mapNotNull { row ->
             runCatching { Uuid.parse(row.assistantId) }.getOrNull()?.let { it to row.count }
         }.toMap()
+    }
+
+    suspend fun getAgentCheckpoint(id: Uuid): String? = database.agentCheckpointDao().get(id.toString())
+
+    suspend fun clearAgentCheckpoint(id: Uuid) = database.agentCheckpointDao().delete(id.toString())
+
+    /** Write-ahead barrier: never start a tool until both its input and in-flight marker commit. */
+    suspend fun saveAgentCheckpoint(conversation: Conversation, checkpoint: AgentCheckpoint, replaceRun: Boolean = false) {
+        require(checkpoint.fingerprint == agentCheckpointFingerprint(conversation))
+        require(conversation.messageNodes.none { it.messages.any { message -> message.hasBase64Part() } })
+        database.withTransaction {
+            check(conversationDAO.existsById(conversation.id.toString())) { "Conversation was removed" }
+            val previous = database.agentCheckpointDao().get(conversation.id.toString())
+            if (previous != null && !replaceRun) {
+                val previousRun = runCatching { JsonInstant.decodeFromString<AgentCheckpoint>(previous).run.id }.getOrNull()
+                check(previousRun == checkpoint.run.id) { "Agent checkpoint belongs to a different run" }
+            }
+            messageNodeDAO.deleteByConversation(conversation.id.toString())
+            saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
+            database.agentCheckpointDao().upsert(AgentCheckpointEntity(
+                conversation.id.toString(), JsonInstant.encodeToString(checkpoint),
+            ))
+        }
     }
 
     suspend fun insertConversation(conversation: Conversation) {
